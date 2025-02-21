@@ -10,14 +10,14 @@ SUSE Linux Micro
 
 SUSE Technical Support provided a set of packages to fix a given situation (so called PTF = Program Temporary Fix).
 
-For more information on downloading and applying PTF files in SUSE Linux, please see this [article](https://www.suse.com/support/kb/doc/?id=000018572).
+For more information on downloading and applying PTF files in SUSE Linux, please see the ["Best practice for applying Program Temporary Fixes (PTFs) article"](https://www.suse.com/support/kb/doc/?id=000018572).
 
 
 ### 	<ins> Resolution </ins>
 
 How should a PTF be applied? 
 
-SUSE Edge runs on top of SUSE Linux Micro operating system which is using an immutable filesystem.
+SUSE Edge runs on top of SUSE Linux Micro operating system which uses an immutable filesystem.
 Therefore we are presented with a few different options on how to apply the PTF:
 
 #### 1. Install the PTF on a running system via a transactional update. 
@@ -27,25 +27,29 @@ Therefore we are presented with a few different options on how to apply the PTF:
 
 A simple workflow for this would be like:
 
-- Install the PTFs:
+- Download the PTF RPMs
+
+- Copy the RPMs to the host, for example using scp:
 ```
-transactional-update pkg install *PTF*rpm
-```
-or
-```
-transactional-update ptf install *PTF*rpm
+scp *PTF*rpm user@slmicrohost:/tmp/
 ```
 
-In the case "Signature verification failed" messages are observed, please use "i" to ignore, otherwise the PTF will not be installed.
+- Install the PTFs:
+```
+ssh user@slmicrohost
+sudo transactional-update pkg install /tmp/*PTF*rpm
+```
+
+*NOTE:* In the case "Signature verification failed" messages are observed, please use "i" to ignore, otherwise the PTF will not be installed.
 
 - Reboot the node manually:
 ```
-# reboot
+sudo reboot
 ```
 
 Once the system is back up, verify the rpm is installed with :
 ```
-rpm -qa | grep -i PTF
+sudo rpm -qa | grep -i PTF
 ```
 
 #### 2. Use Edge Image Builder (EIB) to build a new image:
@@ -53,7 +57,7 @@ rpm -qa | grep -i PTF
 
 Build a new image for your cluster with the same base image and the PTF kernel applied on it, same as before with Edge Image Builder. You will need to reboot though as applying a kernel on an existing image happens on combustion stage. A simple workflow for this would be:
 
-- Create a `rpms` directory in your main Edge Image Builder directory and inside it store the rpm(s), a directory for the `gpg-keys` (more info on this can be found here: https://github.com/suse-edge/edge-image-builder/blob/v1.1.0/docs/building-images.md#rpms) and the suse_ptf_key file:
+- Create a `rpms` directory in your main Edge Image Builder directory and inside it store the rpm(s), a directory for the `gpg-keys` (more info on this can be found on the Edge Image Builder documentation) and the `suse_ptf_key.asc` file as:
 ```
 rpms/
 ├── gpg-keys
@@ -97,21 +101,21 @@ combustion[1392]:     Note: System reboot required.
 
 For more info on this please see [Building Updated SUSE Linux Micro Images with Kiwi](https://documentation.suse.com/suse-edge/3.2/html/edge/guides-kiwi-builder-images.html)
 
-- A short example on using kiwi:
+- An example on using kiwi:
 
 Create a folder to host the assets and the output:
 ```
 mkdir -p ~/ptf/
 mkdir -p ~/output/
 ```
-Create a new custom.kiwi file copying the SL-Micro.kiwi one:
+Create a new custom.kiwi file copying the original SL-Micro.kiwi one:
 ```
 podman create --name kiwi-builder registry.suse.com/edge/3.2/kiwi-builder:10.1.16.0
 podman cp kiwi-builder:/micro-sdk/defs/SL-Micro.kiwi ~/ptf/custom.kiwi
 podman rm kiwi-builder
 ```
-Perform the following changes into the custom.kiwi file:
-Create a new "ptf-1234-SelfInstall" profile that also requires a new "ptf-1234-x86-self_install" profile
+Perform the following changes into the `custom.kiwi` file:
+Create a new `ptf-1234-SelfInstall` profile that also requires a new `ptf-1234-x86-self_install` profile.
 ```
 <profile name="ptf-1234-SelfInstall" description="PTF-1234 Custom SL Micro with Podman and KVM as raw image with uEFI boot - SelfInstall" arch="x86_64">
 	<requires profile="full"/>
@@ -119,20 +123,20 @@ Create a new "ptf-1234-SelfInstall" profile that also requires a new "ptf-1234-x
 	<requires profile="self_install"/>
 </profile>
 ```
-Add also a new packages section for that profile to include the PTF kernel needed to install
+Add also a new packages section for that profile to include the PTF kernel needed to install:
 ```
     <packages type="image" profiles="ptf-1234-x86-self_install">
         <package name="kernel-default-6.4.0-150600.23.33.1.XXXXX.1.PTF.XXXXXXX.x86_64"/>
         <package name="kernel-firmware-all"/>
     </packages>
 ```
-The bootloader profile needs to be also explictely satisfied:
+The bootloader profile needs to be also explicitly satisfied:
 ```
         <profile name="ptf-1234-x86-self_install" description="Raw disk for x86_64 - uEFI" arch="x86_64">
             <requires profile="bootloader"/>
         </profile>
 ```
-For the rest of profile definitions, we can just add the new "ptf-1234-x86-self_install" profile to them
+For the rest of profile definitions, we can just add the new `ptf-1234-x86-self_install` profile to them:
 ```
     <preferences profiles="x86-self_install,x86-rt-self_install,ptf-1234-x86-self_install">
         <version>6.0</version>
@@ -156,7 +160,7 @@ cp kernel-default-6.4.0-150600.23.33.1.XXXXX.1.PTF.XXXXXXX.x86_64.rpm ~/ptf-repo
 cd ~/ptf/repo/
 createrepo .
 ```
-Create a repofile and save it to the ptf folder:
+Create a repofile and save it to the `ptf` folder:
 ```
 cat << EOF > ~/ptf/ptf-1234.repo
 [ptf-1234]
@@ -165,7 +169,7 @@ baseurl=file:///ptf-1234/
 autorefresh=1
 EOF
 ```
-This is what the folder should look like:
+This is how the folder should look like:
 ```
 /home/opensuse/ptf
 ├── custom.kiwi
@@ -184,15 +188,29 @@ Run the podman command with the proper paths for the ptf-repo folder and the pro
 
 
 ```
-sudo podman run --privileged -v ${HOME}/ptf/repo:/ptf-1234 -v ${HOME}/ptf/custom.kiwi:/micro-sdk/defs/SL-Micro.kiwi -v /etc/zypp/repos.d:/micro-sdk/repos/ -v ${HOME}/ptf/ptf-1234.repo:/micro-sdk/repos/ptf-1234.repo -v ${HOME}/output:/tmp/output -it registry.suse.com/edge/3.2/kiwi-builder:10.1.16.0 build-image -p ptf-1234-SelfInstall
+sudo podman run --privileged \
+                -v ${HOME}/ptf/repo:/ptf-1234 \
+                -v ${HOME}/ptf/custom.kiwi:/micro-sdk/defs/SL-Micro.kiwi \
+                -v /etc/zypp/repos.d:/micro-sdk/repos/ \
+                -v ${HOME}/ptf/ptf-1234.repo:/micro-sdk/repos/ptf-1234.repo \
+                -v ${HOME}/output:/tmp/output \
+                -it registry.suse.com/edge/3.2/kiwi-builder:10.1.16.0 \
+                build-image -p ptf-1234-SelfInstall
 ```
 
 
-If running this on a non Micro 6 host, the /etc/zypp/repos.d/ folder can be copied over the host and adjust the folder like:
+If running this on a non Micro 6 host, the `/etc/zypp/repos.d/` folder can be copied over the host and adjust the folder like:
 
 
 ```
-sudo podman run --privileged -v ${HOME}/ptf/repo:/ptf-1234 -v ${HOME}/ptf/custom.kiwi:/micro-sdk/defs/SL-Micro.kiwi -v ${HOME}/ptf/repofiles/:/micro-sdk/repos/ -v ${HOME}/ptf/ptf-1234.repo:/micro-sdk/repos/ptf-1234.repo -v ${HOME}/output:/tmp/output -it registry.suse.com/edge/3.2/kiwi-builder:10.1.16.0 build-image -p ptf-1234-SelfInstall
+sudo podman run --privileged \
+                -v ${HOME}/ptf/repo:/ptf-1234 \
+                -v ${HOME}/ptf/custom.kiwi:/micro-sdk/defs/SL-Micro.kiwi \
+                -v ${HOME}/ptf/repofiles/:/micro-sdk/repos/ \
+                -v ${HOME}/ptf/ptf-1234.repo:/micro-sdk/repos/ptf-1234.repo \
+                -v ${HOME}/output:/tmp/output \
+                -it registry.suse.com/edge/3.2/kiwi-builder:10.1.16.0 \
+                build-image -p ptf-1234-SelfInstall
 ```
 
 As you can see the last option is more elaborated, but it can be useful if you can't reboot the nodes and prefer to rebuild them.
