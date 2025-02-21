@@ -1,0 +1,2 @@
+# SSM
+SUSE Support Material
