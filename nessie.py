@@ -19,6 +19,9 @@ import shutil
 import tarfile
 import subprocess
 import concurrent.futures
+
+REQUIRED_PACKAGES = ["kubernetes"]
+
 from datetime import datetime, timedelta
 from kubernetes import client, config
 from pathlib import Path
