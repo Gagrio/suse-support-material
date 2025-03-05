@@ -1,5 +1,5 @@
-#   🦕  Nessie: Node Environment Support Script for Inspection and Export  🦕                     #
-#   ☸️🐍  Enhanced script for using native Kubernetes python client  ☸️🐍                         #
+#   🦕  Nessie: Node Environment Support Script for Inspection and Export  🦕
+###   ☸️🐍  Enhanced script for using native Kubernetes python client  ☸️🐍                      
 
 ## Overview
 
