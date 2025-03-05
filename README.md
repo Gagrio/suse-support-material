@@ -1,126 +1,113 @@
-# Below is outdated, will be updated soon, thanks.
+#   🦕  Nessie: Node Environment Support Script for Inspection and Export  🦕                     #
+#   ☸️🐍  Enhanced script for using native Kubernetes python client  ☸️🐍                         #
 
+## Overview
 
-# 🛠️ Software Design Document for SUSE EDGE Support Software ϟϟ
+Nessie is a comprehensive log collection and analysis Python script designed for SUSE EDGE environments. It provides an automated solution for gathering critical system and cluster information, making troubleshooting and monitoring easier.
 
-## 1. 🎯 Introduction  
+## 🚀 Features
 
-### 📌 Purpose  
-This application is designed to streamline support engineering tasks by automating data collection and log gathering from customer environments. It will allow customers to:  
-✅ Trigger execution  
-✅ Input relevant case details  
-✅ Upload collected data to the Salesforce (SF) case or generate a ZIP file for manual submission  
+- ✅ Collects logs from K3s/RKE2 configurations
+- ✅ Gathers system service logs from SLE Micro
+- ✅ Captures logs for all SUSE EDGE Pods across namespaces
+- ✅ Collects version information for cluster components
+- ✅ Generates detailed summary reports
+- ✅ Creates compressed log archives
+- ✅ Implements log rotation and retention policies
 
-### 📌 Scope  
-- 🛠️ Part of the EDGE release, executable by customers  
-- 📂 Collects system logs, configurations, and diagnostics from Kubernetes clusters  
-- 🌐 Provides a web-based UI  
-- 🏗️ Runs in a container within the default namespace but has access to all namespaces  
+## 📋 Prerequisites
 
-### 👥 Stakeholders  
-- 🔹 **Support Engineers:** Maintain and enhance the application & Use collected data for debugging and issue resolution  
-- 🔹 **Customers:** Trigger execution and provide input data  
+### System Requirements
+- Python 3.8+
+- Kubernetes cluster (K3s/RKE2)
+- `kubectl` and `helm` CLI tools installed
+- Sufficient disk space in `/var/log/cluster-logs`
 
----
+### Required Python Packages
+- kubernetes
+- pyyaml
 
-## 2. 🏗️ System Overview  
+## 🔧 Installation
 
-### 🏷️ High-Level Description  
-The application will offer a simple web interface for customers to select log and config options, input case details, and initiate data collection. The data can be uploaded to Salesforce or downloaded as a ZIP.  
+1. Clone the repository:
+```bash
+git clone https://github.com/Gagrio/suse-support-material.git
+cd suse-support-material
+```
 
-### 🔑 Key Features  
-✅ Visibility into installed EDGE components  
-✅ Selection of logs and configurations for collection  
-✅ Manual log file and command output gathering  
-✅ Configurable compression options  
-✅ Integration with Salesforce for automatic case updates  
-✅ Kubernetes cluster metrics collection via Kubernetes metric server
+2. Install required dependencies:
+```bash
+pip install -r requirements.txt
+```
 
-### ⚖️ Assumptions & Constraints  
-- 📦 Must be containerized  
-- 🔍 Must access all namespaces in the cluster  
+## 🐳 Docker Deployment
 
----
+### Building the Container
+```bash
+docker build -t nessie .
+```
 
-## 3. 🏗️ Architecture & Design  
+### Running the Container
+```bash
+docker run --rm \
+  -v /path/to/kubeconfig:/root/.kube/config \
+  -v /var/log/cluster-logs:/var/log/cluster-logs \
+  nessie
+```
 
-### 🛠️ Technology Stack  
-- **Backend:** client-go (Golang Kubernetes client library)  
-- **Frontend:** ??? (Maybe React or Vue.js)  
-- **Containerization:** Podman
-- **Orchestration:** Kubernetes  
-- **Storage:** Local (ZIP files), Salesforce API for case uploads  
-- **Authentication:** Kubernetes RBAC  
+## ⚙️ Configuration
 
-### 🏛️ High-Level Architecture  
-📌 **Web UI** → Communicates with API Server  
-📌 **API Server** → Orchestrates log collection and data packaging  
-📌 **Kubernetes API** → Retrieves logs, configurations, and metrics  
+The script offers several configurable parameters:
 
-### 🔧 Component Breakdown  
-- **🎨 UI Component:** Web-based interface  
-- **📡 API Component:** Handles user requests, log retrieval, and data processing  
-- **📥 Data Collector:** Gathers logs, configurations, and metrics  
-- **📦 Compression & Upload Module:** Handles data packaging and transmission  
+- `LOG_DIR`: Base directory for storing collected logs (default: `/var/log/cluster-logs`)
+- `MAX_LOG_SIZE`: Maximum log storage size (default: 1GB)
+- `RETENTION_DAYS`: Number of days to retain log archives (default: 30)
+- `MAX_POD_LOG_LINES`: Maximum log lines per container (default: 1000)
+- `NAMESPACES_FILTER`: Optional list to limit log collection scope
 
----
+Modify these in the script directly or pass as environment variables.
 
-## 4. 📂 Data Model & Storage  
+## 🔍 Usage
 
-### 🔄 Data Flow  
-1️⃣ User selects logs and configurations to collect  
-2️⃣ API triggers data collection from Kubernetes  
-3️⃣ Data is packaged and either uploaded to Salesforce or made available for download  
+### Standalone Script
+```bash
+python nessie.py
+```
 
-### 📑 Storage 
-- ⏳ Temporary storage for ZIP files before upload  
+## 📊 Output
 
----
+Nessie generates:
+- Detailed YAML data file with collected information
+- Summary report with collection statistics
+- Compressed log archive
 
-## 5. 📡 API Design  
+Logs are stored in `/var/log/cluster-logs/archives`
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/components` | List installed EDGE components |
-| POST | `/collect` | Trigger data collection with user-specified options |
-| GET | `/status` | Check progress of data collection |
-| POST | `/upload` | Upload collected data to Salesforce |
+## 🛡️ Security Considerations
 
----
+- Requires appropriate Kubernetes RBAC permissions
+- Sensitive information may be collected, so secure the output files
+- Use with caution in production environments
 
-## 6. 🎨 User Interface  
-- 🌐 Web-based UI for selection and execution  
-- 📝 Simple forms for data input (case number, customer details)  
+## 🤝 Contributing
 
----
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a new Pull Request
 
-## 7. ⚠️ Error Handling & Logging  
-- 📜 Logging to Kubernetes logs (maybe also file on disk?)  
-- 🚦 Error handling with structured responses  
+## 📜 License
 
----
+GNU General Public License v3
 
-## 8. 🚀 Deployment & Maintenance  
-- 🏗️ Deployed as a Kubernetes container in the default namespace  
-- 🔄 CI/CD pipeline for updates  (maybe ?)
-- 📌 Versioned releases following the SUSE EDGE release cycle  
+## 🐞 Troubleshooting
 
----
+- Ensure sufficient disk space
+- Check Kubernetes configuration and permissions
+- Verify Python and required packages are installed
+- Review log files in `/var/log/cluster-logs` for detailed information
 
-## 9. 🧪 Testing Strategy  
-✅ Tests for API endpoints  
-✅ Tests for Kubernetes API and Salesforce API integration  
-✅ UI testing (ask Jiri ?)
+## 📞 Support
 
----
-
-## 10. 🔮 Future Considerations  
-🔹 Extensibility for additional log sources      
-🔹 Support for additional compression formats    
-🔹 Improved UI/UX for better usability   
-🔹 Compatibility with future Kubernetes versions  
-🔹 Additional security enhancements such as encryption and audit logging  
-
----
-
-📌 **End of Document** ✅
+For issues or questions, please raise an issue.
