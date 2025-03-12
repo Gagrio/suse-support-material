@@ -11,11 +11,11 @@ RUN zypper refresh && \
 WORKDIR /app
 
 # Copy the Python script into the container
-COPY scripts/sess.py /app/sess.py
+COPY ./nessie.py /app/nessie.py
 
 # Optionally, copy the requirements.txt if you have any additional dependencies
-# COPY requirements.txt /app/requirements.txt
-# RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Run the script when the container starts
-CMD ["python3", "/app/sess.py"]
+CMD ["python3", "/app/nessie.py"]
