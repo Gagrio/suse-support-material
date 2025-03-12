@@ -1,5 +1,6 @@
 # Use the latest SUSE Linux Enterprise Server (SLES) base image
-FROM registry.suse.com/sles/sles15:latest
+#FROM registry.suse.com/sles/sles15:latest
+FROM registry.suse.com/bci/bci-base:15.6
 
 # Install Python and other dependencies (Python 3, pip, etc.)
 RUN zypper refresh && \
@@ -10,11 +11,11 @@ RUN zypper refresh && \
 WORKDIR /app
 
 # Copy the Python script into the container
-COPY george/SESS/nessie.py /app/nessie.py
+COPY scripts/sess.py /app/sess.py
 
 # Optionally, copy the requirements.txt if you have any additional dependencies
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# COPY requirements.txt /app/requirements.txt
+# RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Run the script when the container starts
-CMD ["python3", "/app/nessie.py"]
+CMD ["python3", "/app/sess.py"]
