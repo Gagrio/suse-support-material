@@ -4,11 +4,11 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'nessie/**'  # Will trigger when files in the nessie directory change
+      - 'Nessie/**'  # Capital N in Nessie directory
   pull_request:
     branches: [ main ]
     paths:
-      - 'nessie/**'
+      - 'Nessie/**'  # Capital N in Nessie directory
   workflow_dispatch:  # Allows manual triggering
 
 jobs:
@@ -33,7 +33,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/nessie  # Using "nessie" as the image name
+          images: ghcr.io/${{ github.repository_owner }}/nessie  # Image name stays lowercase
           tags: |
             type=ref,event=branch
             type=sha,format=short
@@ -42,7 +42,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./nessie  # Path to the directory containing your Dockerfile
+          context: ./Nessie  # Capital N in path to Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
