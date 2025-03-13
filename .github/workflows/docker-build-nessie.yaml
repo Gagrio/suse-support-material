@@ -4,9 +4,11 @@ on:
   push:
     branches: [ main ]
     paths:
-      - '**'  # Trigger on any file change since files are at root
+      - 'Nessie/**'  # Only trigger on changes to files in Nessie directory
   pull_request:
     branches: [ main ]
+    paths:
+      - 'Nessie/**'
   workflow_dispatch:  # Allows manual triggering
 
 jobs:
@@ -46,7 +48,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .  # Build from root directory
+          context: ./Nessie  # Build from Nessie directory
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
