@@ -1,113 +1,165 @@
-#   🦕  Nessie: Node Environment Support Script for Inspection and Export  🦕
-###   ☸️🐍  Enhanced script for using native Kubernetes python client  ☸️🐍                      
+# 🦕 Nessie: Node Environment Support Script for Inspection and Export
 
-## Overview
+Nessie is a powerful diagnostic tool designed to collect logs and configuration data from SUSE Kubernetes environments. It gathers comprehensive information from both the host system and Kubernetes clusters, making it invaluable for troubleshooting and support.
 
-Nessie is a comprehensive log collection and analysis Python script designed for SUSE EDGE environments. It provides an automated solution for gathering critical system and cluster information, making troubleshooting and monitoring easier.
+## 📋 Features
 
-## 🚀 Features
+Nessie collects a wide range of diagnostic information:
 
-- ✅ Collects logs from K3s/RKE2 configurations
-- ✅ Gathers system service logs from SLE Micro
-- ✅ Captures logs for all SUSE EDGE Pods across namespaces
-- ✅ Collects version information for cluster components
-- ✅ Generates detailed summary reports
-- ✅ Creates compressed log archives
-- ✅ Implements log rotation and retention policies
+* 🖥️ System logs from SUSE Linux Micro services
+* 🛳️ Kubernetes pod logs from all or selected namespaces
+* ⚙️ Kubernetes configuration data and Helm releases
+* 📊 Node metrics and performance data
+* 🏷️ Version information of key components
+* 📝 Metal3 logs for bare metal provisioning
 
-## 📋 Prerequisites
+All collected data is organized in a structured directory layout and compressed into a single archive for easy sharing with support engineers.
 
-### System Requirements
-- Python 3.8+
-- Kubernetes cluster (K3s/RKE2)
-- `kubectl` and `helm` CLI tools installed
-- Sufficient disk space in `/var/log/cluster-logs`
+## 🚀 Running Nessie
 
-### Required Python Packages
-- kubernetes
-- pyyaml
+Nessie can be run directly as a Python script or as a container. Both methods are designed to work with minimal configuration.
 
-## 🔧 Installation
+### 🐍 Direct Execution
 
-1. Clone the repository:
+To run Nessie directly on a system:
+
 ```bash
-git clone https://github.com/Gagrio/suse-support-material.git
-cd suse-support-material
-```
-
-2. Install required dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-## 🐳 Docker Deployment
-
-### Building the Container
-```bash
-docker build -t nessie .
-```
-
-### Running the Container
-```bash
-docker run --rm \
-  -v /path/to/kubeconfig:/root/.kube/config \
-  -v /var/log/cluster-logs:/var/log/cluster-logs \
-  nessie
-```
-
-## ⚙️ Configuration
-
-The script offers several configurable parameters:
-
-- `LOG_DIR`: Base directory for storing collected logs (default: `/var/log/cluster-logs`)
-- `MAX_LOG_SIZE`: Maximum log storage size (default: 1GB)
-- `RETENTION_DAYS`: Number of days to retain log archives (default: 30)
-- `MAX_POD_LOG_LINES`: Maximum log lines per container (default: 1000)
-- `NAMESPACES_FILTER`: Optional list to limit log collection scope
-
-Modify these in the script directly or pass as environment variables.
-
-## 🔍 Usage
-
-### Standalone Script
-```bash
+# Basic execution with defaults
 python nessie.py
+
+# With custom configuration
+NESSIE_VERBOSE=1 NESSIE_NAMESPACES=kube-system,default python nessie.py
 ```
 
-## 📊 Output
+### 🐋 Container Execution
 
-Nessie generates:
-- Detailed YAML data file with collected information
-- Summary report with collection statistics
-- Compressed log archive
+Nessie is available as a container image that can be run using Podman or Docker:
 
-Logs are stored in `/var/log/cluster-logs/archives`
+```bash
+# Basic execution with defaults
+podman run --privileged ghcr.io/gagrio/nessie
 
-## 🛡️ Security Considerations
+# With mounted Kubernetes config and persistent storage
+podman run --privileged \
+  -v /etc/rancher/k3s/k3s.yaml:/etc/rancher/k3s/k3s.yaml:ro \
+  -v /var/log/journal:/var/log/journal:ro \
+  -v /run/systemd:/run/systemd:ro \
+  -v /etc/machine-id:/etc/machine-id:ro \
+  -v /tmp/nessie-logs:/tmp/cluster-logs \
+  ghcr.io/gagrio/nessie
+```
 
-- Requires appropriate Kubernetes RBAC permissions
-- Sensitive information may be collected, so secure the output files
-- Use with caution in production environments
+The `--privileged` flag is needed to access system journals and logs.
+
+## ⚙️ Configuration Options
+
+Nessie can be configured through environment variables, making it highly customizable while maintaining reasonable defaults.
+
+| Environment Variable | Default | Description |
+|----------------------|---------|-------------|
+| `NESSIE_LOG_DIR` | `/tmp/cluster-logs` | Base directory for storing collected logs |
+| `NESSIE_ZIP_DIR` | `${LOG_DIR}/archives` | Directory for compressed archives |
+| `NESSIE_MAX_LOG_SIZE` | `1024` | Maximum log storage size in megabytes |
+| `NESSIE_RETENTION_DAYS` | `30` | Number of days to keep archived logs |
+| `NESSIE_MAX_POD_LOG_LINES` | `1000` | Maximum number of log lines to collect per container |
+| `NESSIE_NAMESPACES` | All | Comma-separated list of namespaces to collect logs from |
+| `NESSIE_VERBOSE` | `0` | Verbosity level (0=minimal, 1=info, 2=debug) |
+| `NESSIE_SKIP_NODE_LOGS` | `false` | Skip collecting node system logs if set to true |
+| `NESSIE_SKIP_POD_LOGS` | `false` | Skip collecting Kubernetes pod logs if set to true |
+| `NESSIE_SKIP_K8S_CONFIGS` | `false` | Skip collecting Kubernetes configurations if set to true |
+| `NESSIE_SKIP_METRICS` | `false` | Skip collecting node metrics if set to true |
+| `NESSIE_SKIP_VERSIONS` | `false` | Skip collecting version information if set to true |
+| `KUBECONFIG` | Auto-detected | Path to Kubernetes configuration file |
+
+## 📂 Output Format
+
+Nessie organizes collected data into a structured directory layout:
+
+```
+nessie_logs_YYYY-MM-DD_HH-MM-SS/
+├── node/                # Host system logs
+│   ├── system.log
+│   ├── combustion.log
+│   └── ...
+├── pods/                # Kubernetes pod logs
+│   ├── namespace1/
+│   │   ├── pod1_container1.log
+│   │   └── ...
+│   └── ...
+├── configs/             # Kubernetes configuration
+│   ├── namespaces.txt
+│   ├── helm_releases.yaml
+│   └── ...
+├── metrics/             # Performance metrics
+│   └── node_metrics.yaml
+├── versions/            # Component versions
+│   └── component_versions.txt
+└── summary.yaml         # Collection summary report
+```
+
+All of this is compressed into a single archive file: `nessie_logs_YYYY-MM-DD_HH-MM-SS.tar.gz`.
+
+## 🔄 Kubernetes Configuration Support
+
+Nessie automatically detects Kubernetes configuration files in various locations, including:
+
+* Custom location specified in `KUBECONFIG` environment variable
+* Standard location (`~/.kube/config`)
+* RKE2 configuration (`/etc/rancher/rke2/rke2.yaml`)
+* K3s configuration (`/etc/rancher/k3s/k3s.yaml`)
+
+This makes Nessie compatible with all SUSE Kubernetes implementations without requiring manual configuration.
+
+## 💡 Common Use Cases
+
+### Basic Collection for Support
+
+```bash
+podman run --privileged \
+  -v /var/log/journal:/var/log/journal:ro \
+  -v /etc/rancher/k3s/k3s.yaml:/etc/rancher/k3s/k3s.yaml:ro \
+  -v /tmp/nessie-output:/tmp/cluster-logs \
+  ghcr.io/gagrio/nessie
+```
+
+### Focused Collection for App Troubleshooting
+
+```bash
+podman run --privileged \
+  -v /var/log/journal:/var/log/journal:ro \
+  -v /etc/rancher/k3s/k3s.yaml:/etc/rancher/k3s/k3s.yaml:ro \
+  -v /tmp/nessie-output:/tmp/cluster-logs \
+  -e NESSIE_NAMESPACES=app-namespace,app-database \
+  -e NESSIE_SKIP_METRICS=true \
+  -e NESSIE_MAX_POD_LOG_LINES=5000 \
+  ghcr.io/gagrio/nessie
+```
+
+### High Verbosity for Debugging Issues
+
+```bash
+podman run --privileged \
+  -v /var/log/journal:/var/log/journal:ro \
+  -v /etc/rancher/k3s/k3s.yaml:/etc/rancher/k3s/k3s.yaml:ro \
+  -v /tmp/nessie-output:/tmp/cluster-logs \
+  -e NESSIE_VERBOSE=2 \
+  ghcr.io/gagrio/nessie
+```
+
+## 🛠️ Requirements
+
+Nessie requires:
+
+* Python 3.6 or newer with the `kubernetes` package
+* Access to the Kubernetes API (via kubeconfig)
+* Access to system logs (when running in a container, requires `--privileged`)
+
+## 🔒 Security Notes
+
+* The container requires privileged access to read system logs
+* When sharing logs with support, ensure no sensitive information is included
+* For secure environments, review the collected data before sharing
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a new Pull Request
-
-## 📜 License
-
-GNU General Public License v3
-
-## 🐞 Troubleshooting
-
-- Ensure sufficient disk space
-- Check Kubernetes configuration and permissions
-- Verify Python and required packages are installed
-- Review log files in `/var/log/cluster-logs` for detailed information
-
-## 📞 Support
-
-For issues or questions, please raise an issue.
+Contributions to Nessie are welcome! Please feel free to submit issues or pull requests to the project repository.
