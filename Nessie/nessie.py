@@ -48,11 +48,8 @@ NODE_SERVICES = {
 
 # Commands to retrieve version information
 VERSION_COMMANDS = {
-#    "k3s": "k3s --version",
-#    "rke2": "rke2 --version",
-    "kubernetes:" "kubectl version | grep -i server"
     "helm": "helm version --short",
-    "kubectl": "kubectl version --client=true",
+    "kubectl": "kubectl version",
     "upgrade-controller": "kubectl get deployment system-upgrade-controller -n cattle-system -o jsonpath='{.spec.template.spec.containers[0].image}'",
     "endpoint-copier-operator": "kubectl get deployment endpoint-copier-operator -n endpoint-copier-operator -o jsonpath='{.spec.template.spec.containers[0].image}'",
     "metallb": "kubectl get deployment metallb-controller -n metallb-system -o jsonpath='{.spec.template.spec.containers[*].image}'"
