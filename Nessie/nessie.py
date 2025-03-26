@@ -9,7 +9,6 @@ import logging
 import shutil
 import tarfile
 import subprocess
-import concurrent.futures
 from datetime import datetime, timedelta
 from kubernetes import client, config
 from pathlib import Path
@@ -38,63 +37,6 @@ SKIP_VERSIONS = os.environ.get('NESSIE_SKIP_VERSIONS', '').lower() in ('true', '
 log_level = max(logging.WARNING - (VERBOSE * 10), logging.DEBUG)
 logging.basicConfig(level=log_level, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
-
-def detect_container_runtime():
-    """
-    Detect if the script is running inside a container and identify the runtime.
-    
-    Returns:
-    - None if not in a container
-    - Container runtime name as a string if in a container
-    """
-    # Check for well-known container environment marker files
-    container_markers = [
-        '/.dockerenv',          # Docker
-        '/run/.containerenv',   # Podman
-        '/.podmanenv'           # Additional Podman marker
-    ]
-    
-    # Check for container-specific files
-    for marker in container_markers:
-        if os.path.exists(marker):
-            logger.info(f"Detected container marker: {marker}")
-            return os.path.basename(marker).replace('.', '')
-    
-    # Check cgroup for container indicators
-    try:
-        with open('/proc/1/cgroup', 'r') as f:
-            cgroup_content = f.read().lower()
-            
-            # Mapping of container runtime indicators
-            runtime_indicators = {
-                'docker': '/docker',
-                'podman': '/podman',
-                'containerd': '/containerd',
-                'crio': '/crio',
-                'lxc': '/lxc',
-                'kubernetes': '/kubepods'
-            }
-            
-            for runtime, indicator in runtime_indicators.items():
-                if indicator in cgroup_content:
-                    logger.info(f"Detected container runtime via cgroup: {runtime}")
-                    return runtime
-    except Exception as e:
-        logger.debug(f"Error reading cgroup: {e}")
-    
-    # Additional check for container-specific environment variables
-    container_env_vars = [
-        'KUBERNETES_SERVICE_HOST',  # Kubernetes
-        'DOCKER_CONTAINER',          # Some Docker setups
-        'container'                  # Some container environments
-    ]
-    
-    for var in container_env_vars:
-        if var in os.environ:
-            logger.info(f"Detected container via environment variable: {var}")
-            return 'container'
-    
-    return None
 
 # Service logs to collect
 NODE_SERVICES = {
@@ -190,46 +132,21 @@ def setup_kubernetes_client():
     return client.CoreV1Api(), client.CustomObjectsApi()
 
 def run_command(command, shell=False):
-    """
-    Runs a command safely and returns its output with container-aware execution
-    
-    Args:
-        command (list or str): Command to execute
-        shell (bool): Whether to use shell execution
-    
-    Returns:
-        tuple: (success_bool, output_str)
-    """
-    # Detect if running in a container
-    container_runtime = detect_container_runtime()
-    
+    """Runs a command safely and returns its output"""
     try:
-        # If in container, prepend nsenter to run in host context
-        if container_runtime:
-            logger.info(f"Running in {container_runtime} container. Executing via host namespace.")
-            
-            # If command is a list, convert to string for nsenter
-            if isinstance(command, list):
-                command = ' '.join(command)
-            
-            # Prepend nsenter to run in host's process namespace
-            command = f"nsenter -t 1 -m -u -n -i {command}"
-            shell = True  # nsenter requires shell execution
-        
-        # Execute command
+        args = command if isinstance(command, list) else command
         result = subprocess.run(
-            command, 
+            args, 
             shell=shell, 
-            capture_output=True, 
-            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
             timeout=60
         )
-        
         if result.returncode == 0:
-            return True, result.stdout.strip()
+            return True, result.stdout
         else:
             return False, f"Command failed with code {result.returncode}: {result.stderr}"
-    
     except subprocess.TimeoutExpired:
         return False, "Command timed out after 60 seconds"
     except Exception as e:
@@ -410,7 +327,7 @@ def save_text_logs(data, base_dir):
                     f.write(f"{ns}\n")
             created_files.append(namespaces_file)
         
-        # Save Helm releases
+    # Save Helm releases
         if "helm_releases" in data["k8s_configs"]:
             helm_file = collection_dir / "configs" / "helm_releases.yaml"
             with open(helm_file, "w") as f:
@@ -572,15 +489,31 @@ def check_disk_space():
         logger.error(f"Error checking disk space: {e}")
         return False
 
+def check_required_tools():
+    """Check if required tools are available in the container"""
+    tools = {
+        "journalctl": "collecting system logs",
+        "helm": "collecting Helm releases"
+    }
+    
+    missing_tools = []
+    for tool, purpose in tools.items():
+        success, _ = run_command(f"command -v {tool}", shell=True)
+        if not success:
+            missing_tools.append((tool, purpose))
+    
+    if missing_tools:
+        logger.warning("Some tools required by Nessie are not available in this container:")
+        for tool, purpose in missing_tools:
+            logger.warning(f"  - Missing '{tool}' for {purpose}")
+        logger.warning("Some data collection might be limited.")
+    
+    return len(missing_tools) == 0
+
 def main():
     """Orchestrates log collection with fault tolerance"""
     start_time = time.time()
     logger.info("Starting log collection process")
-    
-    # Detect and log container runtime
-    container_runtime = detect_container_runtime()
-    if container_runtime:
-        logger.info(f"Script is running in a {container_runtime} container")
     
     # Log configuration
     logger.info(f"Configuration: LOG_DIR={LOG_DIR}, ZIP_DIR={ZIP_DIR}, RETENTION_DAYS={RETENTION_DAYS}")
@@ -599,6 +532,9 @@ def main():
     if not check_disk_space():
         logger.error("Insufficient disk space, continuing with best effort")
         prerequisites_met = False
+    
+    # Check for required tools
+    check_required_tools()
     
     # Setup Kubernetes clients
     v1_api, custom_api = setup_kubernetes_client()
@@ -639,6 +575,7 @@ def main():
         logger.info("Skipping pod logs collection")
     else:
         logger.error("Kubernetes API client not available, skipping pod logs collection")
+    
     # Collect node metrics if not skipped and API client is available
     if not SKIP_METRICS and custom_api:
         try:
@@ -686,6 +623,7 @@ def main():
             logger.info(f"Archive created at {archive_file}")
     except Exception as e:
         logger.error(f"Failed to create archive: {e}")
+        archive_file = None
     
     # Clean up old archives
     try:
@@ -693,41 +631,81 @@ def main():
     except Exception as e:
         logger.error(f"Failed to enforce retention policy: {e}")
     
-    # Final report
+    # Calculate total execution time
     total_time = time.time() - start_time
-    logger.info(f"Log collection completed in {total_time:.1f} seconds")
+    minutes, seconds = divmod(total_time, 60)
     
-    # Print completion summary to console
-    print("\n" + "="*50)
-    print("Nessie Log Collection Complete")
-    print("="*50)
+    # Print a comprehensive summary of the collection
+    logger.info("\n" + "="*80)
+    logger.info("📋 NESSIE COLLECTION SUMMARY")
+    logger.info("="*80)
     
-    # Identify and log the created archive
-    latest_archive = None
-    try:
-        archives = sorted(Path(ZIP_DIR).glob('*.tar.gz'), key=os.path.getctime, reverse=True)
-        if archives:
-            latest_archive = archives[0]
-            print(f"Log archive created at: {latest_archive}")
-    except Exception as e:
-        logger.warning(f"Could not find latest archive: {e}")
+    # Collection statistics
+    logger.info(f"⏱️  Execution time: {int(minutes)} minutes, {int(seconds)} seconds")
     
-    # Print collection summary
-    print(f"Total collection time: {total_time:.1f} seconds")
-    
+    # Content summary
+    logger.info("\n📦 COLLECTED CONTENT:")
     if "node_logs" in data:
-        print(f"  - Node logs: {len(data['node_logs'])} services")
-    if "k8s_configs" in data and "namespaces" in data["k8s_configs"]:
-        print(f"  - Kubernetes: {len(data['k8s_configs']['namespaces'])} namespaces")
-    if "pod_logs" in data:
-        pod_count = len([k for k in data['pod_logs'].keys() if k != "error"])
-        print(f"  - Pod logs: {pod_count} pods")
-    if "node_metrics" in data and "items" in data["node_metrics"]:
-        print(f"  - Node metrics: {len(data['node_metrics']['items'])} nodes")
-    if "versions" in data:
-        print(f"  - Versions: {len(data['versions'])} components")
+        success_count = len([k for k, v in data["node_logs"].items() if not str(v).startswith("Failed")])
+        total_count = len(data["node_logs"])
+        logger.info(f"  • System logs: {success_count}/{total_count} services")
+    else:
+        logger.info("  • System logs: Not collected")
     
-    print("="*50)
+    if "pod_logs" in data and "error" not in data["pod_logs"]:
+        pod_count = len(data["pod_logs"])
+        namespaces = set()
+        for pod_key in data["pod_logs"].keys():
+            if "/" in pod_key:
+                namespace = pod_key.split("/")[0]
+                namespaces.add(namespace)
+        logger.info(f"  • Pod logs: {pod_count} pods from {len(namespaces)} namespaces")
+    else:
+        logger.info("  • Pod logs: Not collected")
+    
+    if "k8s_configs" in data and "namespaces" in data["k8s_configs"]:
+        logger.info(f"  • Kubernetes configs: {len(data['k8s_configs']['namespaces'])} namespaces")
+        if data.get("k8s_configs", {}).get("helm_releases"):
+            helm_count = len(data["k8s_configs"]["helm_releases"]) if isinstance(data["k8s_configs"]["helm_releases"], list) else 0
+            logger.info(f"  • Helm releases: {helm_count}")
+    else:
+        logger.info("  • Kubernetes configs: Not collected")
+    
+    if "versions" in data:
+        version_count = len([v for v in data["versions"].values() if not v.startswith("Not available")])
+        logger.info(f"  • Component versions: {version_count}/{len(data['versions'])}")
+    else:
+        logger.info("  • Component versions: Not collected")
+    
+    # Output location
+    logger.info("\n📁 OUTPUT LOCATION:")
+    if 'archive_file' in locals() and archive_file:
+        logger.info(f"  • Archive: {archive_file}")
+    if 'collection_dir' in locals() and collection_dir:
+        logger.info(f"  • Raw data directory: {collection_dir}")
+    if 'summary_file' in locals() and summary_file:
+        logger.info(f"  • Summary YAML: {summary_file}")
+    
+    # Any issues or notes
+    issues = []
+    if "node_logs" in data:
+        failed_services = [k for k, v in data["node_logs"].items() if str(v).startswith("Failed")]
+        if failed_services:
+            issues.append(f"Could not collect logs from: {', '.join(failed_services)}")
+    
+    if "versions" in data:
+        missing_versions = [k for k, v in data["versions"].items() if v.startswith("Not available")]
+        if missing_versions:
+            issues.append(f"Missing version information for: {', '.join(missing_versions)}")
+    
+    if issues:
+        logger.info("\n⚠️ NOTES:")
+        for issue in issues:
+            logger.info(f"  • {issue}")
+    
+    logger.info("\n" + "="*80)
+    logger.info("Collection complete! Use the archive file for sharing with support.")
+    logger.info("="*80 + "\n")
     
     return 0
 
