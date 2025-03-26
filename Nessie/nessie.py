@@ -14,7 +14,7 @@ from kubernetes import client, config
 from pathlib import Path
 
 # Configuration from environment variables with defaults
-LOG_DIR = os.environ.get('NESSIE_LOG_DIR', '/tmp/cluster-logs')
+LOG_DIR = os.environ.get('NESSIE_LOG_DIR', '/tmp')
 ZIP_DIR = os.environ.get('NESSIE_ZIP_DIR', f"{LOG_DIR}/archives")
 MAX_LOG_SIZE = int(os.environ.get('NESSIE_MAX_LOG_SIZE', '1024')) * 1024 * 1024
 RETENTION_DAYS = int(os.environ.get('NESSIE_RETENTION_DAYS', '30'))
