@@ -1,11 +1,13 @@
 # Use the latest SUSE Linux Enterprise Server (SLES) base image
 FROM registry.suse.com/bci/bci-base:15.6
 
-# Install required OS packages
+# Install pip
 RUN zypper --non-interactive ref && \
     zypper --non-interactive install \
-    python3-PyYAML \
-    python3-kubernetes
+    python3-pip
+
+# Use pip to install kubernetes client
+RUN pip3 install pyyaml kubernetes
 
 # Set the working directory inside the container
 WORKDIR /app
