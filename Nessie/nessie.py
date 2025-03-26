@@ -48,13 +48,14 @@ NODE_SERVICES = {
 
 # Commands to retrieve version information
 VERSION_COMMANDS = {
-    "k3s": "k3s --version",
-    "rke2": "rke2 --version",
+#    "k3s": "k3s --version",
+#    "rke2": "rke2 --version",
+    "kubernetes:" "kubectl version | grep -i server"
     "helm": "helm version --short",
-    "kubectl": "kubectl version --short",
-    "upgrade-controller": "kubectl get deployment upgrade-controller -n kube-system -o jsonpath='{.spec.template.spec.containers[0].image}'",
-    "endpoint-copier-operator": "kubectl get deployment endpoint-copier-operator -n kube-system -o jsonpath='{.spec.template.spec.containers[0].image}'",
-    "metallb": "kubectl get deployment -n metallb-system -o jsonpath='{.items[*].spec.template.spec.containers[*].image}'"
+    "kubectl": "kubectl version --client=true",
+    "upgrade-controller": "kubectl get deployment system-upgrade-controller -n cattle-system -o jsonpath='{.spec.template.spec.containers[0].image}'",
+    "endpoint-copier-operator": "kubectl get deployment endpoint-copier-operator -n endpoint-copier-operator -o jsonpath='{.spec.template.spec.containers[0].image}'",
+    "metallb": "kubectl get deployment metallb-controller -n metallb-system -o jsonpath='{.spec.template.spec.containers[*].image}'"
 }
 
 class ProgressTracker:
