@@ -8,7 +8,8 @@ RUN zypper --non-interactive ref && \
     python312-pip \
     helm \
     systemd \
-    util-linux
+    util-linux \
+    kubernetes1.28-client
 
 # Use pip to install kubernetes client
 RUN python3.12 -m pip install pyyaml kubernetes
