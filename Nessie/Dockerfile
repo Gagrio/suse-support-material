@@ -4,10 +4,11 @@ FROM registry.suse.com/bci/bci-base:15.6
 # Install pip
 RUN zypper --non-interactive ref && \
     zypper --non-interactive install \
-    python3-pip
+    python312 \
+    python312-pip
 
 # Use pip to install kubernetes client
-RUN pip3 install pyyaml kubernetes
+RUN python3.12 -m pip install pyyaml kubernetes
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -16,4 +17,4 @@ WORKDIR /app
 COPY ./nessie.py /app/nessie.py
 
 # Run the script when the container starts
-CMD ["python3", "/app/nessie.py"]
+CMD ["python3.12", "/app/nessie.py"]
