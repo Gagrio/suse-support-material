@@ -105,6 +105,7 @@ def setup_kubernetes_client():
         # Try in-cluster config first
         config.load_incluster_config()
         logger.info("Using in-cluster Kubernetes configuration")
+        # Can't set KUBECONFIG for in-cluster config as it uses service account token
     except config.ConfigException:
         # Fall back to local configs
         loaded = False
@@ -118,6 +119,11 @@ def setup_kubernetes_client():
                 try:
                     config.load_kube_config(config_file=expanded_path)
                     logger.info(f"Using Kubernetes configuration from {expanded_path}")
+                    
+                    # Set the KUBECONFIG environment variable for command-line tools
+                    os.environ['KUBECONFIG'] = expanded_path
+                    logger.info(f"Set KUBECONFIG environment variable to {expanded_path}")
+                    
                     loaded = True
                     break
                 except config.ConfigException as e:
