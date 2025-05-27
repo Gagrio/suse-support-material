@@ -23,4 +23,4 @@ WORKDIR /app
 COPY ./nessie.py /app/nessie.py
 
 # Run the script when the container starts
-CMD ["python3.12", "/app/nessie.py"]
+CMD ["python3.11", "/app/nessie.py"]
