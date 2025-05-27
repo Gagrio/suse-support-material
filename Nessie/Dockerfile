@@ -6,7 +6,7 @@ RUN zypper --non-interactive ref && \
     zypper --non-interactive install \
     python311 \
     python311-PyYAML \
-    python3-kubernetes \
+    python311-kubernetes \
     helm \
     systemd \
     util-linux \
