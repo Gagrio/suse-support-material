@@ -5,6 +5,7 @@ FROM registry.suse.com/bci/bci-base:15.6
 RUN zypper --non-interactive ref && \
     zypper --non-interactive install \
     python311 \
+    python311-pip \
 #    python311-PyYAML \
 #    python3-kubernetes \
     helm \
