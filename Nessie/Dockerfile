@@ -10,7 +10,7 @@ RUN zypper --non-interactive ref && \
     helm \
     systemd \
     util-linux \
-    kubernetes1.28-client 
+    kubernetes1.29-client 
 
 # Set the working directory inside the container
 WORKDIR /app
