@@ -1,2 +1,5 @@
 /target
-/tmp/*
+# Ketchup output files
+ketchup-*/
+*.tar.gz
+/tmp/ketchup-*
