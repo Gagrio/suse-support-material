@@ -80,7 +80,9 @@ async fn main() -> Result<()> {
     let output_manager = OutputManager::new_output_manager(args.output);
     let output_dir = output_manager.create_output_directory()?;
 
-    // Save pods and services for each namespace with chosen format
+    // Save pods and services for each namespace with new structure
+    let mut namespace_stats = Vec::new();
+
     for namespace in &verified_namespaces {
         let namespace_pods: Vec<&Value> = pods
             .iter()
@@ -107,23 +109,24 @@ async fn main() -> Result<()> {
         let namespace_service_values: Vec<Value> =
             namespace_services.iter().map(|&s| s.clone()).collect();
 
-        output_manager.save_pods_with_format(
+        let pods_saved = output_manager.save_pods_individually(
             &output_dir,
             namespace,
             &namespace_pod_values,
             &args.format,
         )?;
-        output_manager.save_services_with_format(
+        let services_saved = output_manager.save_services_individually(
             &output_dir,
             namespace,
             &namespace_service_values,
             &args.format,
         )?;
+
+        namespace_stats.push((namespace.clone(), pods_saved, services_saved));
     }
 
-    // Create summary files (always create both for metadata)
-    output_manager.create_summary(&output_dir, &verified_namespaces, pods.len())?;
-    output_manager.create_summary_yaml(&output_dir, &verified_namespaces, pods.len())?;
+    // Create enhanced summary
+    output_manager.create_enhanced_summary(&output_dir, &namespace_stats)?;
 
     // Handle compression based on user preference
     if let Some(archive_path) = output_manager.handle_compression(&output_dir, &args.compression)? {

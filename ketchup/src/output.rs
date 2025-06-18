@@ -28,128 +28,107 @@ impl OutputManager {
         Ok(output_dir)
     }
 
-    /// Save pods to JSON file organized by namespace
-    pub fn save_pods_json(&self, output_dir: &str, namespace: &str, pods: &[Value]) -> Result<()> {
-        let filename = format!("{}/{}-pods.json", output_dir, namespace);
-        let json_content =
-            serde_json::to_string_pretty(pods).context("Failed to serialize pods to JSON")?;
-
-        info!(
-            "Saving {} pods from namespace '{}' to {}",
-            pods.len(),
-            namespace,
-            filename
-        );
-        fs::write(&filename, json_content).context("Failed to write JSON file")?;
-
-        Ok(())
-    }
-
-    /// Save pods to YAML file organized by namespace  
-    pub fn save_pods_yaml(&self, output_dir: &str, namespace: &str, pods: &[Value]) -> Result<()> {
-        let filename = format!("{}/{}-pods.yaml", output_dir, namespace);
-        let yaml_content =
-            serde_yaml::to_string(pods).context("Failed to serialize pods to YAML")?;
-
-        info!(
-            "Saving {} pods from namespace '{}' to {}",
-            pods.len(),
-            namespace,
-            filename
-        );
-        fs::write(&filename, yaml_content).context("Failed to write YAML file")?;
-
-        Ok(())
-    }
-
-    /// Save services to JSON file organized by namespace
-    pub fn save_services_json(
-        &self,
-        output_dir: &str,
-        namespace: &str,
-        services: &[Value],
-    ) -> Result<()> {
-        let filename = format!("{}/{}-services.json", output_dir, namespace);
-        let json_content = serde_json::to_string_pretty(services)
-            .context("Failed to serialize services to JSON")?;
-
-        info!(
-            "Saving {} services from namespace '{}' to {}",
-            services.len(),
-            namespace,
-            filename
-        );
-        fs::write(&filename, json_content).context("Failed to write services JSON file")?;
-
-        Ok(())
-    }
-
-    /// Save services to YAML file organized by namespace  
-    pub fn save_services_yaml(
-        &self,
-        output_dir: &str,
-        namespace: &str,
-        services: &[Value],
-    ) -> Result<()> {
-        let filename = format!("{}/{}-services.yaml", output_dir, namespace);
-        let yaml_content =
-            serde_yaml::to_string(services).context("Failed to serialize services to YAML")?;
-
-        info!(
-            "Saving {} services from namespace '{}' to {}",
-            services.len(),
-            namespace,
-            filename
-        );
-        fs::write(&filename, yaml_content).context("Failed to write services YAML file")?;
-
-        Ok(())
-    }
-
-    /// Save pods based on format preference
-    pub fn save_pods_with_format(
+    /// Save individual pods to namespace/pods/ structure
+    pub fn save_pods_individually(
         &self,
         output_dir: &str,
         namespace: &str,
         pods: &[Value],
         format: &str,
-    ) -> Result<()> {
-        match format {
-            "json" => self.save_pods_json(output_dir, namespace, pods)?,
-            "yaml" => self.save_pods_yaml(output_dir, namespace, pods)?,
-            "both" => {
-                self.save_pods_json(output_dir, namespace, pods)?;
-                self.save_pods_yaml(output_dir, namespace, pods)?;
+    ) -> Result<usize> {
+        let pods_dir = format!("{}/{}/pods", output_dir, namespace);
+        fs::create_dir_all(&pods_dir).context("Failed to create namespace pods directory")?;
+
+        let mut saved_count = 0;
+        for pod in pods {
+            if let Some(pod_name) = pod
+                .get("metadata")
+                .and_then(|m| m.get("name"))
+                .and_then(|n| n.as_str())
+            {
+                match format {
+                    "json" => {
+                        let filename = format!("{}/{}.json", pods_dir, pod_name);
+                        let content = serde_json::to_string_pretty(pod)?;
+                        fs::write(&filename, content)?;
+                        saved_count += 1;
+                    }
+                    "yaml" => {
+                        let filename = format!("{}/{}.yaml", pods_dir, pod_name);
+                        let content = serde_yaml::to_string(pod)?;
+                        fs::write(&filename, content)?;
+                        saved_count += 1;
+                    }
+                    "both" => {
+                        let json_file = format!("{}/{}.json", pods_dir, pod_name);
+                        let yaml_file = format!("{}/{}.yaml", pods_dir, pod_name);
+
+                        let json_content = serde_json::to_string_pretty(pod)?;
+                        let yaml_content = serde_yaml::to_string(pod)?;
+
+                        fs::write(&json_file, json_content)?;
+                        fs::write(&yaml_file, yaml_content)?;
+                        saved_count += 1;
+                    }
+                    _ => return Err(anyhow::anyhow!("Invalid format: {}", format)),
+                }
             }
-            _ => anyhow::bail!("Invalid format: {}. Use json, yaml, or both", format),
         }
-        Ok(())
+
+        info!("Saved {} pods to {}", saved_count, pods_dir);
+        Ok(saved_count)
     }
 
-    /// Save services based on format preference
-    pub fn save_services_with_format(
+    /// Save individual services to namespace/services/ structure
+    pub fn save_services_individually(
         &self,
         output_dir: &str,
         namespace: &str,
         services: &[Value],
         format: &str,
-    ) -> Result<()> {
-        match format {
-            "json" => {
-                self.save_services_json(output_dir, namespace, services)?;
-            }
-            "yaml" => {
-                self.save_services_yaml(output_dir, namespace, services)?;
-            }
-            "both" => {
-                self.save_services_json(output_dir, namespace, services)?;
-                self.save_services_yaml(output_dir, namespace, services)?;
-            }
-            _ => {
-                anyhow::bail!("Invalid format: {}. Use json, yaml, or both", format);
+    ) -> Result<usize> {
+        let services_dir = format!("{}/{}/services", output_dir, namespace);
+        fs::create_dir_all(&services_dir)
+            .context("Failed to create namespace services directory")?;
+
+        let mut saved_count = 0;
+        for service in services {
+            if let Some(service_name) = service
+                .get("metadata")
+                .and_then(|m| m.get("name"))
+                .and_then(|n| n.as_str())
+            {
+                match format {
+                    "json" => {
+                        let filename = format!("{}/{}.json", services_dir, service_name);
+                        let content = serde_json::to_string_pretty(service)?;
+                        fs::write(&filename, content)?;
+                        saved_count += 1;
+                    }
+                    "yaml" => {
+                        let filename = format!("{}/{}.yaml", services_dir, service_name);
+                        let content = serde_yaml::to_string(service)?;
+                        fs::write(&filename, content)?;
+                        saved_count += 1;
+                    }
+                    "both" => {
+                        let json_file = format!("{}/{}.json", services_dir, service_name);
+                        let yaml_file = format!("{}/{}.yaml", services_dir, service_name);
+
+                        let json_content = serde_json::to_string_pretty(service)?;
+                        let yaml_content = serde_yaml::to_string(service)?;
+
+                        fs::write(&json_file, json_content)?;
+                        fs::write(&yaml_file, yaml_content)?;
+                        saved_count += 1;
+                    }
+                    _ => return Err(anyhow::anyhow!("Invalid format: {}", format)),
+                }
             }
         }
-        Ok(())
+
+        info!("Saved {} services to {}", saved_count, services_dir);
+        Ok(saved_count)
     }
 
     /// Create archive based on compression preference
@@ -181,71 +160,50 @@ impl OutputManager {
         }
     }
 
-    /// Create a summary file with collection metadata
-    pub fn create_summary(
+    /// Create enhanced summary with per-namespace resource breakdown
+    pub fn create_enhanced_summary(
         &self,
         output_dir: &str,
-        namespaces: &[String],
-        total_pods: usize,
+        namespace_stats: &[(String, usize, usize)],
     ) -> Result<()> {
+        let mut total_pods = 0;
+        let mut total_services = 0;
+        let mut namespace_details = serde_json::Map::new();
+
+        for (namespace, pod_count, service_count) in namespace_stats {
+            total_pods += pod_count;
+            total_services += service_count;
+
+            namespace_details.insert(
+                namespace.clone(),
+                serde_json::json!({
+                    "pods_collected": pod_count,
+                    "services_collected": service_count,
+                    "total_resources": pod_count + service_count
+                }),
+            );
+        }
+
         let summary = serde_json::json!({
             "collection_info": {
                 "timestamp": self.timestamp.to_rfc3339(),
                 "tool": "ketchup",
                 "version": env!("CARGO_PKG_VERSION")
             },
-            "cluster_info": {
-                "namespaces_requested": namespaces,
-                "namespaces_collected": namespaces.len(),
-                "total_pods_collected": total_pods
+            "cluster_summary": {
+                "total_namespaces": namespace_stats.len(),
+                "total_pods": total_pods,
+                "total_services": total_services,
+                "total_resources": total_pods + total_services
             },
-            "files_created": {
-                "json_files": namespaces.iter().map(|ns| format!("{}-pods.json", ns)).collect::<Vec<_>>(),
-                "yaml_files": namespaces.iter().map(|ns| format!("{}-pods.yaml", ns)).collect::<Vec<_>>()
-            }
-        });
-
-        let filename = format!("{}/collection-summary.json", output_dir);
-        info!("Creating collection summary: {}", filename);
-
-        let summary_content =
-            serde_json::to_string_pretty(&summary).context("Failed to serialize summary")?;
-
-        fs::write(&filename, summary_content).context("Failed to write summary file")?;
-
-        Ok(())
-    }
-
-    /// Create a summary file in YAML format
-    pub fn create_summary_yaml(
-        &self,
-        output_dir: &str,
-        namespaces: &[String],
-        total_pods: usize,
-    ) -> Result<()> {
-        let summary = serde_json::json!({
-            "collection_info": {
-                "timestamp": self.timestamp.to_rfc3339(),
-                "tool": "ketchup",
-                "version": env!("CARGO_PKG_VERSION")
-            },
-            "cluster_info": {
-                "namespaces_requested": namespaces,
-                "namespaces_collected": namespaces.len(),
-                "total_pods_collected": total_pods
-            },
-            "files_created": {
-                "json_files": namespaces.iter().map(|ns| format!("{}-pods.json", ns)).collect::<Vec<_>>(),
-                "yaml_files": namespaces.iter().map(|ns| format!("{}-pods.yaml", ns)).collect::<Vec<_>>()
-            }
+            "namespace_details": namespace_details
         });
 
         let filename = format!("{}/collection-summary.yaml", output_dir);
-        info!("Creating YAML collection summary: {}", filename);
+        info!("Creating enhanced collection summary: {}", filename);
 
         let summary_content =
             serde_yaml::to_string(&summary).context("Failed to serialize summary to YAML")?;
-
         fs::write(&filename, summary_content).context("Failed to write YAML summary file")?;
 
         Ok(())
@@ -261,10 +219,8 @@ impl OutputManager {
         let enc = flate2::write::GzEncoder::new(tar_gz, flate2::Compression::default());
         let mut tar = tar::Builder::new(enc);
 
-        // Add the entire output directory to the archive
         tar.append_dir_all(".", output_dir)
             .context("Failed to add directory to archive")?;
-
         tar.finish().context("Failed to finalize archive")?;
         info!("Archive created successfully: {}", archive_name);
 
