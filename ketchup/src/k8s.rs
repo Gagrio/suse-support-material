@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use k8s_openapi::api::core::v1::{Namespace, Pod};
+use k8s_openapi::api::core::v1::{Namespace, Pod, Service};
 use kube::{Api, Client, Config};
 use serde_json::Value;
 use tracing::{debug, info, warn};
@@ -91,5 +91,38 @@ impl KubeClient {
         }
 
         Ok(all_pods)
+    }
+
+    /// Collect services from specified namespaces
+    pub async fn collect_services(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        let mut all_services = Vec::new();
+
+        for namespace in namespaces {
+            info!("Collecting services from namespace: {}", namespace);
+            let services: Api<Service> = Api::namespaced(self.client.clone(), namespace);
+
+            match services.list(&Default::default()).await {
+                Ok(service_list) => {
+                    let service_count = service_list.items.len();
+                    for service in service_list.items {
+                        if let Ok(json) = serde_json::to_value(&service) {
+                            all_services.push(json);
+                        }
+                    }
+                    info!(
+                        "Found {} services in namespace {}",
+                        service_count, namespace
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to collect services from namespace {}: {}",
+                        namespace, e
+                    );
+                }
+            }
+        }
+
+        Ok(all_services)
     }
 }

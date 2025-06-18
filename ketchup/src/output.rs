@@ -62,6 +62,76 @@ impl OutputManager {
         Ok(())
     }
 
+    /// Save services to JSON file organized by namespace
+    pub fn save_services_json(
+        &self,
+        output_dir: &str,
+        namespace: &str,
+        services: &[Value],
+    ) -> Result<()> {
+        let filename = format!("{}/{}-services.json", output_dir, namespace);
+        let json_content = serde_json::to_string_pretty(services)
+            .context("Failed to serialize services to JSON")?;
+
+        info!(
+            "Saving {} services from namespace '{}' to {}",
+            services.len(),
+            namespace,
+            filename
+        );
+        fs::write(&filename, json_content).context("Failed to write services JSON file")?;
+
+        Ok(())
+    }
+
+    /// Save services to YAML file organized by namespace  
+    pub fn save_services_yaml(
+        &self,
+        output_dir: &str,
+        namespace: &str,
+        services: &[Value],
+    ) -> Result<()> {
+        let filename = format!("{}/{}-services.yaml", output_dir, namespace);
+        let yaml_content =
+            serde_yaml::to_string(services).context("Failed to serialize services to YAML")?;
+
+        info!(
+            "Saving {} services from namespace '{}' to {}",
+            services.len(),
+            namespace,
+            filename
+        );
+        fs::write(&filename, yaml_content).context("Failed to write services YAML file")?;
+
+        Ok(())
+    }
+
+    /// Save services based on format preference
+    pub fn save_services_with_format(
+        &self,
+        output_dir: &str,
+        namespace: &str,
+        services: &[Value],
+        format: &str,
+    ) -> Result<()> {
+        match format {
+            "json" => {
+                self.save_services_json(output_dir, namespace, services)?;
+            }
+            "yaml" => {
+                self.save_services_yaml(output_dir, namespace, services)?;
+            }
+            "both" => {
+                self.save_services_json(output_dir, namespace, services)?;
+                self.save_services_yaml(output_dir, namespace, services)?;
+            }
+            _ => {
+                anyhow::bail!("Invalid format: {}. Use json, yaml, or both", format);
+            }
+        }
+        Ok(())
+    }
+
     /// Create a summary file with collection metadata
     pub fn create_summary(
         &self,

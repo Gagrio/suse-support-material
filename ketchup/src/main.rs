@@ -58,13 +58,19 @@ async fn main() -> Result<()> {
     let pods = kube_client.collect_pods(&verified_namespaces).await?;
     info!("Successfully collected {} pods total", pods.len());
 
+    // Collect services from verified namespaces
+    info!("Starting service collection...");
+    let services = kube_client.collect_services(&verified_namespaces).await?;
+    info!("Successfully collected {} services total", services.len());
+
     // Create output manager and save files
     info!("Setting up file output...");
     let output_manager = OutputManager::new_output_manager(args.output);
     let output_dir = output_manager.create_output_directory()?;
 
-    // Save pods for each namespace
+    // Save resource for each namespace with chosen format
     for namespace in &verified_namespaces {
+        // Save pods
         let namespace_pods: Vec<&Value> = pods
             .iter()
             .filter(|pod| {
@@ -75,14 +81,39 @@ async fn main() -> Result<()> {
             })
             .collect();
 
+        // Save services
+        let namespace_services: Vec<&Value> = services
+            .iter()
+            .filter(|service| {
+                service
+                    .get("metadata")
+                    .and_then(|m| m.get("namespace"))
+                    .and_then(|ns| ns.as_str())
+                    == Some(namespace)
+            })
+            .collect();
+
         let namespace_pod_values: Vec<Value> = namespace_pods.iter().map(|&p| p.clone()).collect();
+        let namespace_service_values: Vec<Value> =
+            namespace_services.iter().map(|&s| s.clone()).collect();
+
         output_manager.save_pods_json(&output_dir, namespace, &namespace_pod_values)?;
         output_manager.save_pods_yaml(&output_dir, namespace, &namespace_pod_values)?;
     }
 
     // Create summary files
-    output_manager.create_summary(&output_dir, &verified_namespaces, pods.len())?;
-    output_manager.create_summary_yaml(&output_dir, &verified_namespaces, pods.len())?;
+    output_manager.save_pods_with_format(
+        &output_dir,
+        namespace,
+        &namespace_pod_values,
+        &args.format,
+    )?;
+    output_manager.save_services_with_format(
+        &output_dir,
+        namespace,
+        &namespace_service_values,
+        &args.format,
+    )?;
 
     // Create compressed archive
     let archive_path = output_manager.create_archive(&output_dir)?;
