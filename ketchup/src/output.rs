@@ -62,7 +62,6 @@ impl OutputManager {
         Ok(())
     }
 
-<<<<<<< HEAD
     /// Save services to JSON file organized by namespace
     pub fn save_services_json(
         &self,
@@ -107,25 +106,36 @@ impl OutputManager {
         Ok(())
     }
 
-    /// Save services based on format preference
-    pub fn save_services_with_format(
-        &self,
-        output_dir: &str,
-        namespace: &str,
-        services: &[Value],
-=======
     /// Save pods based on format preference
     pub fn save_pods_with_format(
         &self,
         output_dir: &str,
         namespace: &str,
         pods: &[Value],
->>>>>>> 75e7177bc57dab412be40ab96fe9ac5eaef76b1e
+        format: &str,
+    ) -> Result<()> {
+        match format {
+            "json" => self.save_pods_json(output_dir, namespace, pods)?,
+            "yaml" => self.save_pods_yaml(output_dir, namespace, pods)?,
+            "both" => {
+                self.save_pods_json(output_dir, namespace, pods)?;
+                self.save_pods_yaml(output_dir, namespace, pods)?;
+            }
+            _ => anyhow::bail!("Invalid format: {}. Use json, yaml, or both", format),
+        }
+        Ok(())
+    }
+
+    /// Save services based on format preference
+    pub fn save_services_with_format(
+        &self,
+        output_dir: &str,
+        namespace: &str,
+        services: &[Value],
         format: &str,
     ) -> Result<()> {
         match format {
             "json" => {
-<<<<<<< HEAD
                 self.save_services_json(output_dir, namespace, services)?;
             }
             "yaml" => {
@@ -134,16 +144,6 @@ impl OutputManager {
             "both" => {
                 self.save_services_json(output_dir, namespace, services)?;
                 self.save_services_yaml(output_dir, namespace, services)?;
-=======
-                self.save_pods_json(output_dir, namespace, pods)?;
-            }
-            "yaml" => {
-                self.save_pods_yaml(output_dir, namespace, pods)?;
-            }
-            "both" => {
-                self.save_pods_json(output_dir, namespace, pods)?;
-                self.save_pods_yaml(output_dir, namespace, pods)?;
->>>>>>> 75e7177bc57dab412be40ab96fe9ac5eaef76b1e
             }
             _ => {
                 anyhow::bail!("Invalid format: {}. Use json, yaml, or both", format);
@@ -152,8 +152,6 @@ impl OutputManager {
         Ok(())
     }
 
-<<<<<<< HEAD
-=======
     /// Create archive based on compression preference
     pub fn handle_compression(
         &self,
@@ -183,7 +181,6 @@ impl OutputManager {
         }
     }
 
->>>>>>> 75e7177bc57dab412be40ab96fe9ac5eaef76b1e
     /// Create a summary file with collection metadata
     pub fn create_summary(
         &self,

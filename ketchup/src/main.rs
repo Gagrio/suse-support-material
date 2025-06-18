@@ -80,13 +80,8 @@ async fn main() -> Result<()> {
     let output_manager = OutputManager::new_output_manager(args.output);
     let output_dir = output_manager.create_output_directory()?;
 
-<<<<<<< HEAD
-    // Save resource for each namespace with chosen format
-=======
-    // Save pods for each namespace with chosen format
->>>>>>> 75e7177bc57dab412be40ab96fe9ac5eaef76b1e
+    // Save pods and services for each namespace with chosen format
     for namespace in &verified_namespaces {
-        // Save pods
         let namespace_pods: Vec<&Value> = pods
             .iter()
             .filter(|pod| {
@@ -97,7 +92,6 @@ async fn main() -> Result<()> {
             })
             .collect();
 
-        // Save services
         let namespace_services: Vec<&Value> = services
             .iter()
             .filter(|service| {
@@ -110,32 +104,19 @@ async fn main() -> Result<()> {
             .collect();
 
         let namespace_pod_values: Vec<Value> = namespace_pods.iter().map(|&p| p.clone()).collect();
-<<<<<<< HEAD
         let namespace_service_values: Vec<Value> =
             namespace_services.iter().map(|&s| s.clone()).collect();
 
-        output_manager.save_pods_json(&output_dir, namespace, &namespace_pod_values)?;
-        output_manager.save_pods_yaml(&output_dir, namespace, &namespace_pod_values)?;
-    }
-
-    // Create summary files
-    output_manager.save_pods_with_format(
-        &output_dir,
-        namespace,
-        &namespace_pod_values,
-        &args.format,
-    )?;
-    output_manager.save_services_with_format(
-        &output_dir,
-        namespace,
-        &namespace_service_values,
-        &args.format,
-    )?;
-=======
         output_manager.save_pods_with_format(
             &output_dir,
             namespace,
             &namespace_pod_values,
+            &args.format,
+        )?;
+        output_manager.save_services_with_format(
+            &output_dir,
+            namespace,
+            &namespace_service_values,
             &args.format,
         )?;
     }
@@ -143,7 +124,6 @@ async fn main() -> Result<()> {
     // Create summary files (always create both for metadata)
     output_manager.create_summary(&output_dir, &verified_namespaces, pods.len())?;
     output_manager.create_summary_yaml(&output_dir, &verified_namespaces, pods.len())?;
->>>>>>> 75e7177bc57dab412be40ab96fe9ac5eaef76b1e
 
     // Handle compression based on user preference
     if let Some(archive_path) = output_manager.handle_compression(&output_dir, &args.compression)? {
