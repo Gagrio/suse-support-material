@@ -62,6 +62,7 @@ impl OutputManager {
         Ok(())
     }
 
+<<<<<<< HEAD
     /// Save services to JSON file organized by namespace
     pub fn save_services_json(
         &self,
@@ -112,10 +113,19 @@ impl OutputManager {
         output_dir: &str,
         namespace: &str,
         services: &[Value],
+=======
+    /// Save pods based on format preference
+    pub fn save_pods_with_format(
+        &self,
+        output_dir: &str,
+        namespace: &str,
+        pods: &[Value],
+>>>>>>> 75e7177bc57dab412be40ab96fe9ac5eaef76b1e
         format: &str,
     ) -> Result<()> {
         match format {
             "json" => {
+<<<<<<< HEAD
                 self.save_services_json(output_dir, namespace, services)?;
             }
             "yaml" => {
@@ -124,6 +134,16 @@ impl OutputManager {
             "both" => {
                 self.save_services_json(output_dir, namespace, services)?;
                 self.save_services_yaml(output_dir, namespace, services)?;
+=======
+                self.save_pods_json(output_dir, namespace, pods)?;
+            }
+            "yaml" => {
+                self.save_pods_yaml(output_dir, namespace, pods)?;
+            }
+            "both" => {
+                self.save_pods_json(output_dir, namespace, pods)?;
+                self.save_pods_yaml(output_dir, namespace, pods)?;
+>>>>>>> 75e7177bc57dab412be40ab96fe9ac5eaef76b1e
             }
             _ => {
                 anyhow::bail!("Invalid format: {}. Use json, yaml, or both", format);
@@ -132,6 +152,38 @@ impl OutputManager {
         Ok(())
     }
 
+<<<<<<< HEAD
+=======
+    /// Create archive based on compression preference
+    pub fn handle_compression(
+        &self,
+        output_dir: &str,
+        compression: &str,
+    ) -> Result<Option<String>> {
+        match compression {
+            "compressed" => {
+                let archive_path = self.create_archive(output_dir)?;
+                Ok(Some(archive_path))
+            }
+            "uncompressed" => {
+                info!("Skipping compression as requested");
+                Ok(None)
+            }
+            "both" => {
+                let archive_path = self.create_archive(output_dir)?;
+                info!("Files available both compressed and uncompressed");
+                Ok(Some(archive_path))
+            }
+            _ => {
+                anyhow::bail!(
+                    "Invalid compression: {}. Use compressed, uncompressed, or both",
+                    compression
+                );
+            }
+        }
+    }
+
+>>>>>>> 75e7177bc57dab412be40ab96fe9ac5eaef76b1e
     /// Create a summary file with collection metadata
     pub fn create_summary(
         &self,
