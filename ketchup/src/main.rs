@@ -71,6 +71,16 @@ async fn main() -> Result<()> {
     let services = kube_client.collect_services(&verified_namespaces).await?;
     info!("Successfully collected {} services total", services.len());
 
+    // Collect deployments from verified namespaces
+    info!("Starting deployment collection...");
+    let deployments = kube_client
+        .collect_deployments(&verified_namespaces)
+        .await?;
+    info!(
+        "Successfully collected {} deployments total",
+        deployments.len()
+    );
+
     // Create output manager and save files
     info!("Setting up file output...");
     info!(
@@ -105,9 +115,22 @@ async fn main() -> Result<()> {
             })
             .collect();
 
+        let namespace_deployments: Vec<&Value> = deployments
+            .iter()
+            .filter(|deployment| {
+                deployment
+                    .get("metadata")
+                    .and_then(|m| m.get("namespace"))
+                    .and_then(|ns| ns.as_str())
+                    == Some(namespace)
+            })
+            .collect();
+
         let namespace_pod_values: Vec<Value> = namespace_pods.iter().map(|&p| p.clone()).collect();
         let namespace_service_values: Vec<Value> =
             namespace_services.iter().map(|&s| s.clone()).collect();
+        let namespace_deployment_values: Vec<Value> =
+            namespace_deployments.iter().map(|&d| d.clone()).collect();
 
         let pods_saved = output_manager.save_pods_individually(
             &output_dir,
@@ -121,8 +144,19 @@ async fn main() -> Result<()> {
             &namespace_service_values,
             &args.format,
         )?;
+        let deployments_saved = output_manager.save_deployments_individually(
+            &output_dir,
+            namespace,
+            &namespace_deployment_values,
+            &args.format,
+        )?;
 
-        namespace_stats.push((namespace.clone(), pods_saved, services_saved));
+        namespace_stats.push((
+            namespace.clone(),
+            pods_saved,
+            services_saved,
+            deployments_saved,
+        ));
     }
 
     // Create enhanced summary

@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{Namespace, Pod, Service};
 use kube::{Api, Client, Config};
 use serde_json::Value;
@@ -124,5 +125,38 @@ impl KubeClient {
         }
 
         Ok(all_services)
+    }
+
+    /// Collect deployments from specified namespaces
+    pub async fn collect_deployments(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        let mut all_deployments = Vec::new();
+
+        for namespace in namespaces {
+            info!("Collecting deployments from namespace: {}", namespace);
+            let deployments: Api<Deployment> = Api::namespaced(self.client.clone(), namespace);
+
+            match deployments.list(&Default::default()).await {
+                Ok(deployment_list) => {
+                    let deployment_count = deployment_list.items.len();
+                    for deployment in deployment_list.items {
+                        if let Ok(json) = serde_json::to_value(&deployment) {
+                            all_deployments.push(json);
+                        }
+                    }
+                    info!(
+                        "Found {} deployments in namespace {}",
+                        deployment_count, namespace
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to collect deployments from namespace {}: {}",
+                        namespace, e
+                    );
+                }
+            }
+        }
+
+        Ok(all_deployments)
     }
 }

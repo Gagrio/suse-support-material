@@ -131,6 +131,58 @@ impl OutputManager {
         Ok(saved_count)
     }
 
+    /// Save individual deployments to namespace/deployments/ structure
+    pub fn save_deployments_individually(
+        &self,
+        output_dir: &str,
+        namespace: &str,
+        deployments: &[Value],
+        format: &str,
+    ) -> Result<usize> {
+        let deployments_dir = format!("{}/{}/deployments", output_dir, namespace);
+        fs::create_dir_all(&deployments_dir)
+            .context("Failed to create namespace deployments directory")?;
+
+        let mut saved_count = 0;
+        for deployment in deployments {
+            if let Some(deployment_name) = deployment
+                .get("metadata")
+                .and_then(|m| m.get("name"))
+                .and_then(|n| n.as_str())
+            {
+                match format {
+                    "json" => {
+                        let filename = format!("{}/{}.json", deployments_dir, deployment_name);
+                        let content = serde_json::to_string_pretty(deployment)?;
+                        fs::write(&filename, content)?;
+                        saved_count += 1;
+                    }
+                    "yaml" => {
+                        let filename = format!("{}/{}.yaml", deployments_dir, deployment_name);
+                        let content = serde_yaml::to_string(deployment)?;
+                        fs::write(&filename, content)?;
+                        saved_count += 1;
+                    }
+                    "both" => {
+                        let json_file = format!("{}/{}.json", deployments_dir, deployment_name);
+                        let yaml_file = format!("{}/{}.yaml", deployments_dir, deployment_name);
+
+                        let json_content = serde_json::to_string_pretty(deployment)?;
+                        let yaml_content = serde_yaml::to_string(deployment)?;
+
+                        fs::write(&json_file, json_content)?;
+                        fs::write(&yaml_file, yaml_content)?;
+                        saved_count += 1;
+                    }
+                    _ => return Err(anyhow::anyhow!("Invalid format: {}", format)),
+                }
+            }
+        }
+
+        info!("Saved {} deployments to {}", saved_count, deployments_dir);
+        Ok(saved_count)
+    }
+
     /// Create archive based on compression preference
     pub fn handle_compression(
         &self,
