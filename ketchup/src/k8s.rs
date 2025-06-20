@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::{Namespace, Pod, Service};
+use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Pod, Secret, Service};
 use kube::{Api, Client, Config};
 use serde_json::Value;
 use tracing::{debug, info, warn};
@@ -158,5 +158,68 @@ impl KubeClient {
         }
 
         Ok(all_deployments)
+    }
+
+    /// Collect configmaps from specified namespaces
+    pub async fn collect_configmaps(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        let mut all_configmaps = Vec::new();
+
+        for namespace in namespaces {
+            info!("Collecting configmaps from namespace: {}", namespace);
+            let configmaps: Api<ConfigMap> = Api::namespaced(self.client.clone(), namespace);
+
+            match configmaps.list(&Default::default()).await {
+                Ok(configmap_list) => {
+                    let configmap_count = configmap_list.items.len();
+                    for configmap in configmap_list.items {
+                        if let Ok(json) = serde_json::to_value(&configmap) {
+                            all_configmaps.push(json);
+                        }
+                    }
+                    info!(
+                        "Found {} configmaps in namespace {}",
+                        configmap_count, namespace
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to collect configmaps from namespace {}: {}",
+                        namespace, e
+                    );
+                }
+            }
+        }
+
+        Ok(all_configmaps)
+    }
+
+    /// Collect secrets from specified namespaces
+    pub async fn collect_secrets(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        let mut all_secrets = Vec::new();
+
+        for namespace in namespaces {
+            info!("Collecting secrets from namespace: {}", namespace);
+            let secrets: Api<Secret> = Api::namespaced(self.client.clone(), namespace);
+
+            match secrets.list(&Default::default()).await {
+                Ok(secret_list) => {
+                    let secret_count = secret_list.items.len();
+                    for secret in secret_list.items {
+                        if let Ok(json) = serde_json::to_value(&secret) {
+                            all_secrets.push(json);
+                        }
+                    }
+                    info!("Found {} secrets in namespace {}", secret_count, namespace);
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to collect secrets from namespace {}: {}",
+                        namespace, e
+                    );
+                }
+            }
+        }
+
+        Ok(all_secrets)
     }
 }

@@ -81,6 +81,19 @@ async fn main() -> Result<()> {
         deployments.len()
     );
 
+    // Collect ConfigMaps from verified namespaces
+    info!("Starting ConfigMap collection...");
+    let configmaps = kube_client.collect_configmaps(&verified_namespaces).await?;
+    info!(
+        "Successfully collected {} configmaps total",
+        configmaps.len()
+    );
+
+    // Collect Secrets from verified namespaces
+    info!("Starting secret collection...");
+    let secrets = kube_client.collect_secrets(&verified_namespaces).await?;
+    info!("Successfully collected {} secrets total", secrets.len());
+
     // Create output manager and save files
     info!("Setting up file output...");
     info!(
@@ -90,7 +103,7 @@ async fn main() -> Result<()> {
     let output_manager = OutputManager::new_output_manager(args.output);
     let output_dir = output_manager.create_output_directory()?;
 
-    // Save pods and services for each namespace with new structure
+    // Save resources for each namespace with new structure
     let mut namespace_stats = Vec::new();
 
     for namespace in &verified_namespaces {
@@ -126,11 +139,42 @@ async fn main() -> Result<()> {
             })
             .collect();
 
+        let namespace_configmaps: Vec<Value> = configmaps
+            .iter()
+            .filter(|configmap| {
+                configmap
+                    .get("metadata")
+                    .and_then(|m| m.get("namespace"))
+                    .and_then(|ns| ns.as_str())
+                    == Some(namespace)
+            })
+            .cloned()
+            .collect();
+
+        let namespace_secrets: Vec<&Value> = secrets
+            .iter()
+            .filter(|secret| {
+                secret
+                    .get("metadata")
+                    .and_then(|m| m.get("namespace"))
+                    .and_then(|ns| ns.as_str())
+                    == Some(namespace)
+            })
+            .collect();
+
         let namespace_pod_values: Vec<Value> = namespace_pods.iter().map(|&p| p.clone()).collect();
+
         let namespace_service_values: Vec<Value> =
             namespace_services.iter().map(|&s| s.clone()).collect();
+
         let namespace_deployment_values: Vec<Value> =
             namespace_deployments.iter().map(|&d| d.clone()).collect();
+
+        let namespace_configmap_values: Vec<Value> =
+            namespace_configmaps.iter().map(|c| c.clone()).collect();
+
+        let namespace_secret_values: Vec<Value> =
+            namespace_secrets.iter().map(|c| (*c).clone()).collect();
 
         let pods_saved = output_manager.save_pods_individually(
             &output_dir,
@@ -138,16 +182,32 @@ async fn main() -> Result<()> {
             &namespace_pod_values,
             &args.format,
         )?;
+
         let services_saved = output_manager.save_services_individually(
             &output_dir,
             namespace,
             &namespace_service_values,
             &args.format,
         )?;
+
         let deployments_saved = output_manager.save_deployments_individually(
             &output_dir,
             namespace,
             &namespace_deployment_values,
+            &args.format,
+        )?;
+
+        let configmaps_saved = output_manager.save_configmaps_individually(
+            &output_dir,
+            namespace,
+            &namespace_configmap_values,
+            &args.format,
+        )?;
+
+        let secrets_saved = output_manager.save_secrets_individually(
+            &output_dir,
+            namespace,
+            &namespace_secret_values,
             &args.format,
         )?;
 
@@ -156,6 +216,8 @@ async fn main() -> Result<()> {
             pods_saved,
             services_saved,
             deployments_saved,
+            configmaps_saved,
+            secrets_saved,
         ));
     }
 
