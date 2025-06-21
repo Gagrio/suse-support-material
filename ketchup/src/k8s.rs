@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Pod, Secret, Service};
+use k8s_openapi::api::core::v1::{
+    ConfigMap, Namespace, PersistentVolumeClaim, Pod, Secret, Service,
+};
+use k8s_openapi::api::networking::v1::{Ingress, NetworkPolicy};
 use kube::{Api, Client, Config};
 use serde_json::Value;
 use tracing::{debug, info, warn};
@@ -67,159 +70,96 @@ impl KubeClient {
         Ok(verified)
     }
 
-    /// Collect pods from specified namespaces
-    pub async fn collect_pods(&self, namespaces: &[String]) -> Result<Vec<Value>> {
-        let mut all_pods = Vec::new();
+    /// Generic method to collect any namespaced Kubernetes resources
+    pub async fn collect_resources<T>(
+        &self,
+        namespaces: &[String],
+        resource_name: &str,
+    ) -> Result<Vec<Value>>
+    where
+        T: k8s_openapi::Resource<Scope = k8s_openapi::NamespaceResourceScope>
+            + k8s_openapi::Metadata<Ty = k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta>,
+        T: serde::Serialize + serde::de::DeserializeOwned,
+        T: Clone + std::fmt::Debug,
+    {
+        let mut all_resources = Vec::new();
 
         for namespace in namespaces {
-            info!("Collecting pods from namespace: {}", namespace);
-            let pods: Api<Pod> = Api::namespaced(self.client.clone(), namespace);
+            info!("Collecting {} from namespace: {}", resource_name, namespace);
+            let api: Api<T> = Api::namespaced(self.client.clone(), namespace);
 
-            match pods.list(&Default::default()).await {
-                Ok(pod_list) => {
-                    let pod_count = pod_list.items.len();
-                    for pod in pod_list.items {
-                        if let Ok(json) = serde_json::to_value(&pod) {
-                            all_pods.push(json);
+            match api.list(&Default::default()).await {
+                Ok(resource_list) => {
+                    let resource_count = resource_list.items.len();
+                    for resource in resource_list.items {
+                        if let Ok(json) = serde_json::to_value(&resource) {
+                            all_resources.push(json);
                         }
                     }
-                    info!("Found {} pods in namespace {}", pod_count, namespace);
+                    info!(
+                        "Found {} {} in namespace {}",
+                        resource_count, resource_name, namespace
+                    );
                 }
                 Err(e) => {
-                    warn!("Failed to collect pods from namespace {}: {}", namespace, e);
+                    warn!(
+                        "Failed to collect {} from namespace {}: {}",
+                        resource_name, namespace, e
+                    );
                 }
             }
         }
 
-        Ok(all_pods)
+        Ok(all_resources)
+    }
+
+    /// Collect pods from specified namespaces
+    pub async fn collect_pods(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        self.collect_resources::<Pod>(namespaces, "pods").await
     }
 
     /// Collect services from specified namespaces
     pub async fn collect_services(&self, namespaces: &[String]) -> Result<Vec<Value>> {
-        let mut all_services = Vec::new();
-
-        for namespace in namespaces {
-            info!("Collecting services from namespace: {}", namespace);
-            let services: Api<Service> = Api::namespaced(self.client.clone(), namespace);
-
-            match services.list(&Default::default()).await {
-                Ok(service_list) => {
-                    let service_count = service_list.items.len();
-                    for service in service_list.items {
-                        if let Ok(json) = serde_json::to_value(&service) {
-                            all_services.push(json);
-                        }
-                    }
-                    info!(
-                        "Found {} services in namespace {}",
-                        service_count, namespace
-                    );
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to collect services from namespace {}: {}",
-                        namespace, e
-                    );
-                }
-            }
-        }
-
-        Ok(all_services)
+        self.collect_resources::<Service>(namespaces, "services")
+            .await
     }
 
     /// Collect deployments from specified namespaces
     pub async fn collect_deployments(&self, namespaces: &[String]) -> Result<Vec<Value>> {
-        let mut all_deployments = Vec::new();
-
-        for namespace in namespaces {
-            info!("Collecting deployments from namespace: {}", namespace);
-            let deployments: Api<Deployment> = Api::namespaced(self.client.clone(), namespace);
-
-            match deployments.list(&Default::default()).await {
-                Ok(deployment_list) => {
-                    let deployment_count = deployment_list.items.len();
-                    for deployment in deployment_list.items {
-                        if let Ok(json) = serde_json::to_value(&deployment) {
-                            all_deployments.push(json);
-                        }
-                    }
-                    info!(
-                        "Found {} deployments in namespace {}",
-                        deployment_count, namespace
-                    );
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to collect deployments from namespace {}: {}",
-                        namespace, e
-                    );
-                }
-            }
-        }
-
-        Ok(all_deployments)
+        self.collect_resources::<Deployment>(namespaces, "deployments")
+            .await
     }
 
     /// Collect configmaps from specified namespaces
     pub async fn collect_configmaps(&self, namespaces: &[String]) -> Result<Vec<Value>> {
-        let mut all_configmaps = Vec::new();
-
-        for namespace in namespaces {
-            info!("Collecting configmaps from namespace: {}", namespace);
-            let configmaps: Api<ConfigMap> = Api::namespaced(self.client.clone(), namespace);
-
-            match configmaps.list(&Default::default()).await {
-                Ok(configmap_list) => {
-                    let configmap_count = configmap_list.items.len();
-                    for configmap in configmap_list.items {
-                        if let Ok(json) = serde_json::to_value(&configmap) {
-                            all_configmaps.push(json);
-                        }
-                    }
-                    info!(
-                        "Found {} configmaps in namespace {}",
-                        configmap_count, namespace
-                    );
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to collect configmaps from namespace {}: {}",
-                        namespace, e
-                    );
-                }
-            }
-        }
-
-        Ok(all_configmaps)
+        self.collect_resources::<ConfigMap>(namespaces, "configmaps")
+            .await
     }
 
     /// Collect secrets from specified namespaces
     pub async fn collect_secrets(&self, namespaces: &[String]) -> Result<Vec<Value>> {
-        let mut all_secrets = Vec::new();
+        self.collect_resources::<Secret>(namespaces, "secrets")
+            .await
+    }
 
-        for namespace in namespaces {
-            info!("Collecting secrets from namespace: {}", namespace);
-            let secrets: Api<Secret> = Api::namespaced(self.client.clone(), namespace);
+    /// Collect ingresses from specified namespaces
+    pub async fn collect_ingresses(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        self.collect_resources::<Ingress>(namespaces, "ingresses")
+            .await
+    }
 
-            match secrets.list(&Default::default()).await {
-                Ok(secret_list) => {
-                    let secret_count = secret_list.items.len();
-                    for secret in secret_list.items {
-                        if let Ok(json) = serde_json::to_value(&secret) {
-                            all_secrets.push(json);
-                        }
-                    }
-                    info!("Found {} secrets in namespace {}", secret_count, namespace);
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to collect secrets from namespace {}: {}",
-                        namespace, e
-                    );
-                }
-            }
-        }
+    /// Collect persistentvolumeclaims from specified namespaces
+    pub async fn collect_persistentvolumeclaims(
+        &self,
+        namespaces: &[String],
+    ) -> Result<Vec<Value>> {
+        self.collect_resources::<PersistentVolumeClaim>(namespaces, "persistentvolumeclaims")
+            .await
+    }
 
-        Ok(all_secrets)
+    /// Collect networkpolicies from specified namespaces
+    pub async fn collect_networkpolicies(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        self.collect_resources::<NetworkPolicy>(namespaces, "networkpolicies")
+            .await
     }
 }

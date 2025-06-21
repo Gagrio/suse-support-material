@@ -4,6 +4,32 @@ use serde_json::Value;
 use std::fs;
 use tracing::info;
 
+#[derive(Debug, Clone)]
+pub struct NamespaceStats {
+    pub namespace: String,
+    pub pods: usize,
+    pub services: usize,
+    pub deployments: usize,
+    pub configmaps: usize,
+    pub secrets: usize,
+    pub ingresses: usize,
+    pub pvcs: usize,
+    pub networkpolicies: usize,
+}
+
+impl NamespaceStats {
+    pub fn total_resources(&self) -> usize {
+        self.pods
+            + self.services
+            + self.deployments
+            + self.configmaps
+            + self.secrets
+            + self.ingresses
+            + self.pvcs
+            + self.networkpolicies
+    }
+}
+
 pub struct OutputManager {
     base_dir: String,
     timestamp: DateTime<Utc>,
@@ -286,43 +312,210 @@ impl OutputManager {
         Ok(saved_count)
     }
 
+    /// Save individual ingresses to namespace/ingresses/ structure
+    pub fn save_ingresses_individually(
+        &self,
+        output_dir: &str,
+        namespace: &str,
+        ingresses: &[Value],
+        format: &str,
+    ) -> Result<usize> {
+        let ingresses_dir = format!("{}/{}/ingresses", output_dir, namespace);
+        fs::create_dir_all(&ingresses_dir)
+            .context("Failed to create namespace ingresses directory")?;
+
+        let mut saved_count = 0;
+        for ingress in ingresses {
+            if let Some(ingress_name) = ingress
+                .get("metadata")
+                .and_then(|m| m.get("name"))
+                .and_then(|n| n.as_str())
+            {
+                match format {
+                    "json" => {
+                        let filename = format!("{}/{}.json", ingresses_dir, ingress_name);
+                        let content = serde_json::to_string_pretty(ingress)?;
+                        fs::write(&filename, content)?;
+                        saved_count += 1;
+                    }
+                    "yaml" => {
+                        let filename = format!("{}/{}.yaml", ingresses_dir, ingress_name);
+                        let content = serde_yaml::to_string(ingress)?;
+                        fs::write(&filename, content)?;
+                        saved_count += 1;
+                    }
+                    "both" => {
+                        let json_file = format!("{}/{}.json", ingresses_dir, ingress_name);
+                        let yaml_file = format!("{}/{}.yaml", ingresses_dir, ingress_name);
+
+                        let json_content = serde_json::to_string_pretty(ingress)?;
+                        let yaml_content = serde_yaml::to_string(ingress)?;
+
+                        fs::write(&json_file, json_content)?;
+                        fs::write(&yaml_file, yaml_content)?;
+                        saved_count += 1;
+                    }
+                    _ => return Err(anyhow::anyhow!("Invalid format: {}", format)),
+                }
+            }
+        }
+
+        info!("Saved {} ingresses to {}", saved_count, ingresses_dir);
+        Ok(saved_count)
+    }
+
+    /// Save individual persistentvolumeclaims to namespace/persistentvolumeclaims/ structure
+    pub fn save_persistentvolumeclaims_individually(
+        &self,
+        output_dir: &str,
+        namespace: &str,
+        pvcs: &[Value],
+        format: &str,
+    ) -> Result<usize> {
+        let pvcs_dir = format!("{}/{}/persistentvolumeclaims", output_dir, namespace);
+        fs::create_dir_all(&pvcs_dir)
+            .context("Failed to create namespace persistentvolumeclaims directory")?;
+
+        let mut saved_count = 0;
+        for pvc in pvcs {
+            if let Some(pvc_name) = pvc
+                .get("metadata")
+                .and_then(|m| m.get("name"))
+                .and_then(|n| n.as_str())
+            {
+                match format {
+                    "json" => {
+                        let filename = format!("{}/{}.json", pvcs_dir, pvc_name);
+                        let content = serde_json::to_string_pretty(pvc)?;
+                        fs::write(&filename, content)?;
+                        saved_count += 1;
+                    }
+                    "yaml" => {
+                        let filename = format!("{}/{}.yaml", pvcs_dir, pvc_name);
+                        let content = serde_yaml::to_string(pvc)?;
+                        fs::write(&filename, content)?;
+                        saved_count += 1;
+                    }
+                    "both" => {
+                        let json_file = format!("{}/{}.json", pvcs_dir, pvc_name);
+                        let yaml_file = format!("{}/{}.yaml", pvcs_dir, pvc_name);
+
+                        let json_content = serde_json::to_string_pretty(pvc)?;
+                        let yaml_content = serde_yaml::to_string(pvc)?;
+
+                        fs::write(&json_file, json_content)?;
+                        fs::write(&yaml_file, yaml_content)?;
+                        saved_count += 1;
+                    }
+                    _ => return Err(anyhow::anyhow!("Invalid format: {}", format)),
+                }
+            }
+        }
+
+        info!(
+            "Saved {} persistentvolumeclaims to {}",
+            saved_count, pvcs_dir
+        );
+        Ok(saved_count)
+    }
+
+    /// Save individual networkpolicies to namespace/networkpolicies/ structure
+    pub fn save_networkpolicies_individually(
+        &self,
+        output_dir: &str,
+        namespace: &str,
+        networkpolicies: &[Value],
+        format: &str,
+    ) -> Result<usize> {
+        let networkpolicies_dir = format!("{}/{}/networkpolicies", output_dir, namespace);
+        fs::create_dir_all(&networkpolicies_dir)
+            .context("Failed to create namespace networkpolicies directory")?;
+
+        let mut saved_count = 0;
+        for networkpolicy in networkpolicies {
+            if let Some(networkpolicy_name) = networkpolicy
+                .get("metadata")
+                .and_then(|m| m.get("name"))
+                .and_then(|n| n.as_str())
+            {
+                match format {
+                    "json" => {
+                        let filename =
+                            format!("{}/{}.json", networkpolicies_dir, networkpolicy_name);
+                        let content = serde_json::to_string_pretty(networkpolicy)?;
+                        fs::write(&filename, content)?;
+                        saved_count += 1;
+                    }
+                    "yaml" => {
+                        let filename =
+                            format!("{}/{}.yaml", networkpolicies_dir, networkpolicy_name);
+                        let content = serde_yaml::to_string(networkpolicy)?;
+                        fs::write(&filename, content)?;
+                        saved_count += 1;
+                    }
+                    "both" => {
+                        let json_file =
+                            format!("{}/{}.json", networkpolicies_dir, networkpolicy_name);
+                        let yaml_file =
+                            format!("{}/{}.yaml", networkpolicies_dir, networkpolicy_name);
+
+                        let json_content = serde_json::to_string_pretty(networkpolicy)?;
+                        let yaml_content = serde_yaml::to_string(networkpolicy)?;
+
+                        fs::write(&json_file, json_content)?;
+                        fs::write(&yaml_file, yaml_content)?;
+                        saved_count += 1;
+                    }
+                    _ => return Err(anyhow::anyhow!("Invalid format: {}", format)),
+                }
+            }
+        }
+
+        info!(
+            "Saved {} networkpolicies to {}",
+            saved_count, networkpolicies_dir
+        );
+        Ok(saved_count)
+    }
+
     /// Create enhanced summary with per-namespace resource breakdown
     pub fn create_enhanced_summary(
         &self,
         output_dir: &str,
-        namespace_stats: &[(String, usize, usize, usize, usize, usize)], // Updated to include secrets
+        namespace_stats: &[NamespaceStats],
     ) -> Result<()> {
         let mut total_pods = 0;
         let mut total_services = 0;
         let mut total_deployments = 0;
         let mut total_configmaps = 0;
         let mut total_secrets = 0;
+        let mut total_ingresses = 0;
+        let mut total_pvcs = 0;
+        let mut total_networkpolicies = 0;
         let mut namespace_details = serde_json::Map::new();
 
-        for (
-            namespace,
-            pod_count,
-            service_count,
-            deployment_count,
-            configmap_count,
-            secret_count,
-        ) in namespace_stats
-        {
-            total_pods += pod_count;
-            total_services += service_count;
-            total_deployments += deployment_count;
-            total_configmaps += configmap_count;
-            total_secrets += secret_count;
+        for stats in namespace_stats {
+            total_pods += stats.pods;
+            total_services += stats.services;
+            total_deployments += stats.deployments;
+            total_configmaps += stats.configmaps;
+            total_secrets += stats.secrets;
+            total_ingresses += stats.ingresses;
+            total_pvcs += stats.pvcs;
+            total_networkpolicies += stats.networkpolicies;
 
             namespace_details.insert(
-                namespace.clone(),
+                stats.namespace.clone(),
                 serde_json::json!({
-                    "pods_collected": pod_count,
-                    "services_collected": service_count,
-                    "deployments_collected": deployment_count,
-                    "configmaps_collected": configmap_count,
-                    "secrets_collected": secret_count,
-                    "total_resources": pod_count + service_count + deployment_count + configmap_count + secret_count
+                    "pods_collected": stats.pods,
+                    "services_collected": stats.services,
+                    "deployments_collected": stats.deployments,
+                    "configmaps_collected": stats.configmaps,
+                    "secrets_collected": stats.secrets,
+                    "ingresses_collected": stats.ingresses,
+                    "persistentvolumeclaims_collected": stats.pvcs,
+                    "networkpolicies_collected": stats.networkpolicies,
+                    "a_summary_of_total_resources": stats.total_resources()  // ← Use our new method!
                 }),
             );
         }
@@ -340,7 +533,10 @@ impl OutputManager {
                 "total_deployments": total_deployments,
                 "total_configmaps": total_configmaps,
                 "total_secrets": total_secrets,
-                "total_resources": total_pods + total_services + total_deployments + total_configmaps + total_secrets
+                "total_ingresses": total_ingresses,
+                "total_persistentvolumeclaims": total_pvcs,
+                "total_networkpolicies": total_networkpolicies,
+                "a_summary_of_total_resources": total_pods + total_services + total_deployments + total_configmaps + total_secrets + total_ingresses + total_pvcs + total_networkpolicies
             },
             "namespace_details": namespace_details
         });
