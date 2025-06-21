@@ -40,41 +40,43 @@ struct Args {
 async fn collect_all_resources(
     kube_client: &k8s::KubeClient,
     namespaces: &[String],
-) -> Result<(
-    Vec<Value>,
-    Vec<Value>,
-    Vec<Value>,
-    Vec<Value>,
-    Vec<Value>,
-    Vec<Value>,
-    Vec<Value>,
-    Vec<Value>,
-)> {
+) -> Result<std::collections::HashMap<String, Vec<Value>>> {
+    use std::collections::HashMap;
+
     info!("Starting resource collection...");
 
+    let mut resources = HashMap::new();
+
+    // Core resources
     let pods = kube_client.collect_pods(namespaces).await?;
     info!("Successfully collected {} pods total", pods.len());
+    resources.insert("pods".to_string(), pods);
 
     let services = kube_client.collect_services(namespaces).await?;
     info!("Successfully collected {} services total", services.len());
+    resources.insert("services".to_string(), services);
 
     let deployments = kube_client.collect_deployments(namespaces).await?;
     info!(
         "Successfully collected {} deployments total",
         deployments.len()
     );
+    resources.insert("deployments".to_string(), deployments);
 
     let configmaps = kube_client.collect_configmaps(namespaces).await?;
     info!(
         "Successfully collected {} configmaps total",
         configmaps.len()
     );
+    resources.insert("configmaps".to_string(), configmaps);
 
     let secrets = kube_client.collect_secrets(namespaces).await?;
     info!("Successfully collected {} secrets total", secrets.len());
+    resources.insert("secrets".to_string(), secrets);
 
     let ingresses = kube_client.collect_ingresses(namespaces).await?;
     info!("Successfully collected {} ingresses total", ingresses.len());
+    resources.insert("ingresses".to_string(), ingresses);
 
     let pvcs = kube_client
         .collect_persistentvolumeclaims(namespaces)
@@ -83,23 +85,111 @@ async fn collect_all_resources(
         "Successfully collected {} persistentvolumeclaims total",
         pvcs.len()
     );
+    resources.insert("persistentvolumeclaims".to_string(), pvcs);
 
     let networkpolicies = kube_client.collect_networkpolicies(namespaces).await?;
     info!(
         "Successfully collected {} networkpolicies total",
         networkpolicies.len()
     );
+    resources.insert("networkpolicies".to_string(), networkpolicies);
 
-    Ok((
-        pods,
-        services,
-        deployments,
-        configmaps,
-        secrets,
-        ingresses,
-        pvcs,
-        networkpolicies,
-    ))
+    // Workload controllers
+    let replicasets = kube_client.collect_replicasets(namespaces).await?;
+    info!(
+        "Successfully collected {} replicasets total",
+        replicasets.len()
+    );
+    resources.insert("replicasets".to_string(), replicasets);
+
+    let daemonsets = kube_client.collect_daemonsets(namespaces).await?;
+    info!(
+        "Successfully collected {} daemonsets total",
+        daemonsets.len()
+    );
+    resources.insert("daemonsets".to_string(), daemonsets);
+
+    let statefulsets = kube_client.collect_statefulsets(namespaces).await?;
+    info!(
+        "Successfully collected {} statefulsets total",
+        statefulsets.len()
+    );
+    resources.insert("statefulsets".to_string(), statefulsets);
+
+    let jobs = kube_client.collect_jobs(namespaces).await?;
+    info!("Successfully collected {} jobs total", jobs.len());
+    resources.insert("jobs".to_string(), jobs);
+
+    let cronjobs = kube_client.collect_cronjobs(namespaces).await?;
+    info!("Successfully collected {} cronjobs total", cronjobs.len());
+    resources.insert("cronjobs".to_string(), cronjobs);
+
+    // RBAC resources
+    let serviceaccounts = kube_client.collect_serviceaccounts(namespaces).await?;
+    info!(
+        "Successfully collected {} serviceaccounts total",
+        serviceaccounts.len()
+    );
+    resources.insert("serviceaccounts".to_string(), serviceaccounts);
+
+    let roles = kube_client.collect_roles(namespaces).await?;
+    info!("Successfully collected {} roles total", roles.len());
+    resources.insert("roles".to_string(), roles);
+
+    let rolebindings = kube_client.collect_rolebindings(namespaces).await?;
+    info!(
+        "Successfully collected {} rolebindings total",
+        rolebindings.len()
+    );
+    resources.insert("rolebindings".to_string(), rolebindings);
+
+    // Resource management
+    let resourcequotas = kube_client.collect_resourcequotas(namespaces).await?;
+    info!(
+        "Successfully collected {} resourcequotas total",
+        resourcequotas.len()
+    );
+    resources.insert("resourcequotas".to_string(), resourcequotas);
+
+    let limitranges = kube_client.collect_limitranges(namespaces).await?;
+    info!(
+        "Successfully collected {} limitranges total",
+        limitranges.len()
+    );
+    resources.insert("limitranges".to_string(), limitranges);
+
+    let horizontalpodautoscalers = kube_client
+        .collect_horizontalpodautoscalers(namespaces)
+        .await?;
+    info!(
+        "Successfully collected {} horizontalpodautoscalers total",
+        horizontalpodautoscalers.len()
+    );
+    resources.insert(
+        "horizontalpodautoscalers".to_string(),
+        horizontalpodautoscalers,
+    );
+
+    let poddisruptionbudgets = kube_client.collect_poddisruptionbudgets(namespaces).await?;
+    info!(
+        "Successfully collected {} poddisruptionbudgets total",
+        poddisruptionbudgets.len()
+    );
+    resources.insert("poddisruptionbudgets".to_string(), poddisruptionbudgets);
+
+    // Network resources
+    let endpoints = kube_client.collect_endpoints(namespaces).await?;
+    info!("Successfully collected {} endpoints total", endpoints.len());
+    resources.insert("endpoints".to_string(), endpoints);
+
+    let endpointslices = kube_client.collect_endpointslices(namespaces).await?;
+    info!(
+        "Successfully collected {} endpointslices total",
+        endpointslices.len()
+    );
+    resources.insert("endpointslices".to_string(), endpointslices);
+
+    Ok(resources)
 }
 
 #[tokio::main]
@@ -119,7 +209,8 @@ async fn main() -> Result<()> {
     let requested_namespaces = if let Some(ns_str) = &args.namespaces {
         ns_str.split(',').map(|s| s.trim().to_string()).collect()
     } else {
-        vec!["default".to_string()]
+        info!("No namespaces specified, collecting from ALL namespaces");
+        kube_client.list_namespaces().await?
     };
 
     let verified_namespaces = kube_client.verify_namespaces(&requested_namespaces).await?;
@@ -127,8 +218,7 @@ async fn main() -> Result<()> {
     info!("Output directory: {}", args.output);
 
     // Collect all resources from verified namespaces
-    let (pods, services, deployments, configmaps, secrets, ingresses, pvcs, networkpolicies) =
-        collect_all_resources(&kube_client, &verified_namespaces).await?;
+    let resources = collect_all_resources(&kube_client, &verified_namespaces).await?;
 
     // Create output manager and save files
     info!("Setting up file output...");
@@ -140,184 +230,111 @@ async fn main() -> Result<()> {
     let output_dir = output_manager.create_output_directory()?;
 
     // Save all resources for each namespace
-    let mut namespace_stats = Vec::new();
+    let mut namespace_stats: Vec<NamespaceStats> = Vec::new();
 
     for namespace in &verified_namespaces {
-        // Filter resources by namespace
-        let namespace_pods: Vec<Value> = pods
-            .iter()
-            .filter(|pod| {
-                pod.get("metadata")
-                    .and_then(|m| m.get("namespace"))
-                    .and_then(|ns| ns.as_str())
-                    == Some(namespace)
-            })
-            .cloned()
-            .collect();
-
-        let namespace_services: Vec<Value> = services
-            .iter()
-            .filter(|service| {
-                service
-                    .get("metadata")
-                    .and_then(|m| m.get("namespace"))
-                    .and_then(|ns| ns.as_str())
-                    == Some(namespace)
-            })
-            .cloned()
-            .collect();
-
-        let namespace_deployments: Vec<Value> = deployments
-            .iter()
-            .filter(|deployment| {
-                deployment
-                    .get("metadata")
-                    .and_then(|m| m.get("namespace"))
-                    .and_then(|ns| ns.as_str())
-                    == Some(namespace)
-            })
-            .cloned()
-            .collect();
-
-        let namespace_configmaps: Vec<Value> = configmaps
-            .iter()
-            .filter(|configmap| {
-                configmap
-                    .get("metadata")
-                    .and_then(|m| m.get("namespace"))
-                    .and_then(|ns| ns.as_str())
-                    == Some(namespace)
-            })
-            .cloned()
-            .collect();
-
-        let namespace_secrets: Vec<Value> = secrets
-            .iter()
-            .filter(|secret| {
-                secret
-                    .get("metadata")
-                    .and_then(|m| m.get("namespace"))
-                    .and_then(|ns| ns.as_str())
-                    == Some(namespace)
-            })
-            .cloned()
-            .collect();
-
-        let namespace_ingresses: Vec<Value> = ingresses
-            .iter()
-            .filter(|ingress| {
-                ingress
-                    .get("metadata")
-                    .and_then(|m| m.get("namespace"))
-                    .and_then(|ns| ns.as_str())
-                    == Some(namespace)
-            })
-            .cloned()
-            .collect();
-
-        let namespace_pvcs: Vec<Value> = pvcs
-            .iter()
-            .filter(|pvc| {
-                pvc.get("metadata")
-                    .and_then(|m| m.get("namespace"))
-                    .and_then(|ns| ns.as_str())
-                    == Some(namespace)
-            })
-            .cloned()
-            .collect();
-
-        let namespace_networkpolicies: Vec<Value> = networkpolicies
-            .iter()
-            .filter(|networkpolicy| {
-                networkpolicy
-                    .get("metadata")
-                    .and_then(|m| m.get("namespace"))
-                    .and_then(|ns| ns.as_str())
-                    == Some(namespace)
-            })
-            .cloned()
-            .collect();
-
-        // Save all resource types
-        let pods_saved = output_manager.save_pods_individually(
-            &output_dir,
-            namespace,
-            &namespace_pods,
-            &args.format,
-        )?;
-
-        let services_saved = output_manager.save_services_individually(
-            &output_dir,
-            namespace,
-            &namespace_services,
-            &args.format,
-        )?;
-
-        let deployments_saved = output_manager.save_deployments_individually(
-            &output_dir,
-            namespace,
-            &namespace_deployments,
-            &args.format,
-        )?;
-
-        let configmaps_saved = output_manager.save_configmaps_individually(
-            &output_dir,
-            namespace,
-            &namespace_configmaps,
-            &args.format,
-        )?;
-
-        let secrets_saved = output_manager.save_secrets_individually(
-            &output_dir,
-            namespace,
-            &namespace_secrets,
-            &args.format,
-        )?;
-
-        let ingresses_saved = output_manager.save_ingresses_individually(
-            &output_dir,
-            namespace,
-            &namespace_ingresses,
-            &args.format,
-        )?;
-
-        let pvcs_saved = output_manager.save_persistentvolumeclaims_individually(
-            &output_dir,
-            namespace,
-            &namespace_pvcs,
-            &args.format,
-        )?;
-
-        let networkpolicies_saved = output_manager.save_networkpolicies_individually(
-            &output_dir,
-            namespace,
-            &namespace_networkpolicies,
-            &args.format,
-        )?;
-
-        namespace_stats.push(NamespaceStats {
+        let mut stats = NamespaceStats {
             namespace: namespace.clone(),
-            pods: pods_saved,
-            services: services_saved,
-            deployments: deployments_saved,
-            configmaps: configmaps_saved,
-            secrets: secrets_saved,
-            ingresses: ingresses_saved,
-            pvcs: pvcs_saved,
-            networkpolicies: networkpolicies_saved,
-        });
+            pods: 0,
+            services: 0,
+            deployments: 0,
+            configmaps: 0,
+            secrets: 0,
+            ingresses: 0,
+            pvcs: 0,
+            networkpolicies: 0,
+            // High priority workload controllers
+            replicasets: 0,
+            daemonsets: 0,
+            statefulsets: 0,
+            jobs: 0,
+            cronjobs: 0,
+            // RBAC resources
+            serviceaccounts: 0,
+            roles: 0,
+            rolebindings: 0,
+            // Resource management
+            resourcequotas: 0,
+            limitranges: 0,
+            horizontalpodautoscalers: 0,
+            poddisruptionbudgets: 0,
+            // Network resources
+            endpoints: 0,
+            endpointslices: 0,
+        };
+
+        // Process each resource type
+        for (resource_type, all_resources) in &resources {
+            // Filter resources by namespace
+            let namespace_resources: Vec<Value> = all_resources
+                .iter()
+                .filter(|resource| {
+                    resource
+                        .get("metadata")
+                        .and_then(|m| m.get("namespace"))
+                        .and_then(|ns| ns.as_str())
+                        == Some(namespace)
+                })
+                .cloned()
+                .collect();
+
+            // Save resources and update stats
+            let saved_count = output_manager.save_resources_individually(
+                &output_dir,
+                namespace,
+                &namespace_resources,
+                resource_type,
+                &args.format,
+            )?;
+
+            // Update the appropriate field in stats
+            match resource_type.as_str() {
+                "pods" => stats.pods = saved_count,
+                "services" => stats.services = saved_count,
+                "deployments" => stats.deployments = saved_count,
+                "configmaps" => stats.configmaps = saved_count,
+                "secrets" => stats.secrets = saved_count,
+                "ingresses" => stats.ingresses = saved_count,
+                "persistentvolumeclaims" => stats.pvcs = saved_count,
+                "networkpolicies" => stats.networkpolicies = saved_count,
+                // Workload controllers
+                "replicasets" => stats.replicasets = saved_count,
+                "daemonsets" => stats.daemonsets = saved_count,
+                "statefulsets" => stats.statefulsets = saved_count,
+                "jobs" => stats.jobs = saved_count,
+                "cronjobs" => stats.cronjobs = saved_count,
+                // RBAC resources
+                "serviceaccounts" => stats.serviceaccounts = saved_count,
+                "roles" => stats.roles = saved_count,
+                "rolebindings" => stats.rolebindings = saved_count,
+                // Resource management
+                "resourcequotas" => stats.resourcequotas = saved_count,
+                "limitranges" => stats.limitranges = saved_count,
+                "horizontalpodautoscalers" => stats.horizontalpodautoscalers = saved_count,
+                "poddisruptionbudgets" => stats.poddisruptionbudgets = saved_count,
+                // Network resources
+                "endpoints" => stats.endpoints = saved_count,
+                "endpointslices" => stats.endpointslices = saved_count,
+                _ => {} // Ignore unknown resource types
+            }
+        }
+
+        // After processing ALL resource types for this namespace
+        namespace_stats.push(stats);
+
+        // Create enhanced summary
+        output_manager.create_enhanced_summary(&output_dir, &namespace_stats)?;
+
+        // Handle compression based on user preference
+        if let Some(archive_path) =
+            output_manager.handle_compression(&output_dir, &args.compression)?
+        {
+            info!("Archive created: {}", archive_path);
+        }
+
+        info!("Files saved to: {}", output_dir);
+        info!("Collection completed successfully");
     }
-
-    // Create enhanced summary
-    output_manager.create_enhanced_summary(&output_dir, &namespace_stats)?;
-
-    // Handle compression based on user preference
-    if let Some(archive_path) = output_manager.handle_compression(&output_dir, &args.compression)? {
-        info!("Archive created: {}", archive_path);
-    }
-
-    info!("Files saved to: {}", output_dir);
-    info!("Collection completed successfully");
     Ok(())
 }
 

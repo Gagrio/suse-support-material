@@ -1,7 +1,8 @@
+use std::fs;
+
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
-use std::fs;
 use tracing::info;
 
 #[derive(Debug, Clone)]
@@ -15,6 +16,24 @@ pub struct NamespaceStats {
     pub ingresses: usize,
     pub pvcs: usize,
     pub networkpolicies: usize,
+    // High priority workload controllers
+    pub replicasets: usize,
+    pub daemonsets: usize,
+    pub statefulsets: usize,
+    pub jobs: usize,
+    pub cronjobs: usize,
+    // RBAC resources
+    pub serviceaccounts: usize,
+    pub roles: usize,
+    pub rolebindings: usize,
+    // Resource management
+    pub resourcequotas: usize,
+    pub limitranges: usize,
+    pub horizontalpodautoscalers: usize,
+    pub poddisruptionbudgets: usize,
+    // Network resources
+    pub endpoints: usize,
+    pub endpointslices: usize,
 }
 
 impl NamespaceStats {
@@ -27,6 +46,20 @@ impl NamespaceStats {
             + self.ingresses
             + self.pvcs
             + self.networkpolicies
+            + self.replicasets
+            + self.daemonsets
+            + self.statefulsets
+            + self.jobs
+            + self.cronjobs
+            + self.serviceaccounts
+            + self.roles
+            + self.rolebindings
+            + self.resourcequotas
+            + self.limitranges
+            + self.horizontalpodautoscalers
+            + self.poddisruptionbudgets
+            + self.endpoints
+            + self.endpointslices
     }
 }
 
@@ -54,354 +87,45 @@ impl OutputManager {
         Ok(output_dir)
     }
 
-    /// Save individual pods to namespace/pods/ structure
-    pub fn save_pods_individually(
+    /// Generic method to save any resource type individually
+    pub fn save_resources_individually(
         &self,
         output_dir: &str,
         namespace: &str,
-        pods: &[Value],
+        resources: &[Value],
+        resource_type: &str,
         format: &str,
     ) -> Result<usize> {
-        let pods_dir = format!("{}/{}/pods", output_dir, namespace);
-        fs::create_dir_all(&pods_dir).context("Failed to create namespace pods directory")?;
+        let resource_dir = format!("{}/{}/{}", output_dir, namespace, resource_type);
+        fs::create_dir_all(&resource_dir)
+            .with_context(|| format!("Failed to create namespace {} directory", resource_type))?;
 
         let mut saved_count = 0;
-        for pod in pods {
-            if let Some(pod_name) = pod
+        for resource in resources {
+            if let Some(resource_name) = resource
                 .get("metadata")
                 .and_then(|m| m.get("name"))
                 .and_then(|n| n.as_str())
             {
                 match format {
                     "json" => {
-                        let filename = format!("{}/{}.json", pods_dir, pod_name);
-                        let content = serde_json::to_string_pretty(pod)?;
+                        let filename = format!("{}/{}.json", resource_dir, resource_name);
+                        let content = serde_json::to_string_pretty(resource)?;
                         fs::write(&filename, content)?;
                         saved_count += 1;
                     }
                     "yaml" => {
-                        let filename = format!("{}/{}.yaml", pods_dir, pod_name);
-                        let content = serde_yaml::to_string(pod)?;
+                        let filename = format!("{}/{}.yaml", resource_dir, resource_name);
+                        let content = serde_yaml::to_string(resource)?;
                         fs::write(&filename, content)?;
                         saved_count += 1;
                     }
                     "both" => {
-                        let json_file = format!("{}/{}.json", pods_dir, pod_name);
-                        let yaml_file = format!("{}/{}.yaml", pods_dir, pod_name);
+                        let json_file = format!("{}/{}.json", resource_dir, resource_name);
+                        let yaml_file = format!("{}/{}.yaml", resource_dir, resource_name);
 
-                        let json_content = serde_json::to_string_pretty(pod)?;
-                        let yaml_content = serde_yaml::to_string(pod)?;
-
-                        fs::write(&json_file, json_content)?;
-                        fs::write(&yaml_file, yaml_content)?;
-                        saved_count += 1;
-                    }
-                    _ => return Err(anyhow::anyhow!("Invalid format: {}", format)),
-                }
-            }
-        }
-
-        info!("Saved {} pods to {}", saved_count, pods_dir);
-        Ok(saved_count)
-    }
-
-    /// Save individual services to namespace/services/ structure
-    pub fn save_services_individually(
-        &self,
-        output_dir: &str,
-        namespace: &str,
-        services: &[Value],
-        format: &str,
-    ) -> Result<usize> {
-        let services_dir = format!("{}/{}/services", output_dir, namespace);
-        fs::create_dir_all(&services_dir)
-            .context("Failed to create namespace services directory")?;
-
-        let mut saved_count = 0;
-        for service in services {
-            if let Some(service_name) = service
-                .get("metadata")
-                .and_then(|m| m.get("name"))
-                .and_then(|n| n.as_str())
-            {
-                match format {
-                    "json" => {
-                        let filename = format!("{}/{}.json", services_dir, service_name);
-                        let content = serde_json::to_string_pretty(service)?;
-                        fs::write(&filename, content)?;
-                        saved_count += 1;
-                    }
-                    "yaml" => {
-                        let filename = format!("{}/{}.yaml", services_dir, service_name);
-                        let content = serde_yaml::to_string(service)?;
-                        fs::write(&filename, content)?;
-                        saved_count += 1;
-                    }
-                    "both" => {
-                        let json_file = format!("{}/{}.json", services_dir, service_name);
-                        let yaml_file = format!("{}/{}.yaml", services_dir, service_name);
-
-                        let json_content = serde_json::to_string_pretty(service)?;
-                        let yaml_content = serde_yaml::to_string(service)?;
-
-                        fs::write(&json_file, json_content)?;
-                        fs::write(&yaml_file, yaml_content)?;
-                        saved_count += 1;
-                    }
-                    _ => return Err(anyhow::anyhow!("Invalid format: {}", format)),
-                }
-            }
-        }
-
-        info!("Saved {} services to {}", saved_count, services_dir);
-        Ok(saved_count)
-    }
-
-    /// Save individual deployments to namespace/deployments/ structure
-    pub fn save_deployments_individually(
-        &self,
-        output_dir: &str,
-        namespace: &str,
-        deployments: &[Value],
-        format: &str,
-    ) -> Result<usize> {
-        let deployments_dir = format!("{}/{}/deployments", output_dir, namespace);
-        fs::create_dir_all(&deployments_dir)
-            .context("Failed to create namespace deployments directory")?;
-
-        let mut saved_count = 0;
-        for deployment in deployments {
-            if let Some(deployment_name) = deployment
-                .get("metadata")
-                .and_then(|m| m.get("name"))
-                .and_then(|n| n.as_str())
-            {
-                match format {
-                    "json" => {
-                        let filename = format!("{}/{}.json", deployments_dir, deployment_name);
-                        let content = serde_json::to_string_pretty(deployment)?;
-                        fs::write(&filename, content)?;
-                        saved_count += 1;
-                    }
-                    "yaml" => {
-                        let filename = format!("{}/{}.yaml", deployments_dir, deployment_name);
-                        let content = serde_yaml::to_string(deployment)?;
-                        fs::write(&filename, content)?;
-                        saved_count += 1;
-                    }
-                    "both" => {
-                        let json_file = format!("{}/{}.json", deployments_dir, deployment_name);
-                        let yaml_file = format!("{}/{}.yaml", deployments_dir, deployment_name);
-
-                        let json_content = serde_json::to_string_pretty(deployment)?;
-                        let yaml_content = serde_yaml::to_string(deployment)?;
-
-                        fs::write(&json_file, json_content)?;
-                        fs::write(&yaml_file, yaml_content)?;
-                        saved_count += 1;
-                    }
-                    _ => return Err(anyhow::anyhow!("Invalid format: {}", format)),
-                }
-            }
-        }
-
-        info!("Saved {} deployments to {}", saved_count, deployments_dir);
-        Ok(saved_count)
-    }
-
-    /// Save individual configmaps to namespace/configmaps/ structure
-    pub fn save_configmaps_individually(
-        &self,
-        output_dir: &str,
-        namespace: &str,
-        configmaps: &[Value],
-        format: &str,
-    ) -> Result<usize> {
-        let configmaps_dir = format!("{}/{}/configmaps", output_dir, namespace);
-        fs::create_dir_all(&configmaps_dir)
-            .context("Failed to create namespace configmaps directory")?;
-
-        let mut saved_count = 0;
-        for configmap in configmaps {
-            if let Some(configmap_name) = configmap
-                .get("metadata")
-                .and_then(|m| m.get("name"))
-                .and_then(|n| n.as_str())
-            {
-                match format {
-                    "json" => {
-                        let filename = format!("{}/{}.json", configmaps_dir, configmap_name);
-                        let content = serde_json::to_string_pretty(configmap)?;
-                        fs::write(&filename, content)?;
-                        saved_count += 1;
-                    }
-                    "yaml" => {
-                        let filename = format!("{}/{}.yaml", configmaps_dir, configmap_name);
-                        let content = serde_yaml::to_string(configmap)?;
-                        fs::write(&filename, content)?;
-                        saved_count += 1;
-                    }
-                    "both" => {
-                        let json_file = format!("{}/{}.json", configmaps_dir, configmap_name);
-                        let yaml_file = format!("{}/{}.yaml", configmaps_dir, configmap_name);
-
-                        let json_content = serde_json::to_string_pretty(configmap)?;
-                        let yaml_content = serde_yaml::to_string(configmap)?;
-
-                        fs::write(&json_file, json_content)?;
-                        fs::write(&yaml_file, yaml_content)?;
-                        saved_count += 1;
-                    }
-                    _ => return Err(anyhow::anyhow!("Invalid format: {}", format)),
-                }
-            }
-        }
-
-        info!("Saved {} configmaps to {}", saved_count, configmaps_dir);
-        Ok(saved_count)
-    }
-
-    /// Save individual secrets to namespace/secrets/ structure
-    pub fn save_secrets_individually(
-        &self,
-        output_dir: &str,
-        namespace: &str,
-        secrets: &[Value],
-        format: &str,
-    ) -> Result<usize> {
-        let secrets_dir = format!("{}/{}/secrets", output_dir, namespace);
-        fs::create_dir_all(&secrets_dir).context("Failed to create namespace secrets directory")?;
-
-        let mut saved_count = 0;
-        for secret in secrets {
-            if let Some(secret_name) = secret
-                .get("metadata")
-                .and_then(|m| m.get("name"))
-                .and_then(|n| n.as_str())
-            {
-                match format {
-                    "json" => {
-                        let filename = format!("{}/{}.json", secrets_dir, secret_name);
-                        let content = serde_json::to_string_pretty(secret)?;
-                        fs::write(&filename, content)?;
-                        saved_count += 1;
-                    }
-                    "yaml" => {
-                        let filename = format!("{}/{}.yaml", secrets_dir, secret_name);
-                        let content = serde_yaml::to_string(secret)?;
-                        fs::write(&filename, content)?;
-                        saved_count += 1;
-                    }
-                    "both" => {
-                        let json_file = format!("{}/{}.json", secrets_dir, secret_name);
-                        let yaml_file = format!("{}/{}.yaml", secrets_dir, secret_name);
-
-                        let json_content = serde_json::to_string_pretty(secret)?;
-                        let yaml_content = serde_yaml::to_string(secret)?;
-
-                        fs::write(&json_file, json_content)?;
-                        fs::write(&yaml_file, yaml_content)?;
-                        saved_count += 1;
-                    }
-                    _ => return Err(anyhow::anyhow!("Invalid format: {}", format)),
-                }
-            }
-        }
-
-        info!("Saved {} secrets to {}", saved_count, secrets_dir);
-        Ok(saved_count)
-    }
-
-    /// Save individual ingresses to namespace/ingresses/ structure
-    pub fn save_ingresses_individually(
-        &self,
-        output_dir: &str,
-        namespace: &str,
-        ingresses: &[Value],
-        format: &str,
-    ) -> Result<usize> {
-        let ingresses_dir = format!("{}/{}/ingresses", output_dir, namespace);
-        fs::create_dir_all(&ingresses_dir)
-            .context("Failed to create namespace ingresses directory")?;
-
-        let mut saved_count = 0;
-        for ingress in ingresses {
-            if let Some(ingress_name) = ingress
-                .get("metadata")
-                .and_then(|m| m.get("name"))
-                .and_then(|n| n.as_str())
-            {
-                match format {
-                    "json" => {
-                        let filename = format!("{}/{}.json", ingresses_dir, ingress_name);
-                        let content = serde_json::to_string_pretty(ingress)?;
-                        fs::write(&filename, content)?;
-                        saved_count += 1;
-                    }
-                    "yaml" => {
-                        let filename = format!("{}/{}.yaml", ingresses_dir, ingress_name);
-                        let content = serde_yaml::to_string(ingress)?;
-                        fs::write(&filename, content)?;
-                        saved_count += 1;
-                    }
-                    "both" => {
-                        let json_file = format!("{}/{}.json", ingresses_dir, ingress_name);
-                        let yaml_file = format!("{}/{}.yaml", ingresses_dir, ingress_name);
-
-                        let json_content = serde_json::to_string_pretty(ingress)?;
-                        let yaml_content = serde_yaml::to_string(ingress)?;
-
-                        fs::write(&json_file, json_content)?;
-                        fs::write(&yaml_file, yaml_content)?;
-                        saved_count += 1;
-                    }
-                    _ => return Err(anyhow::anyhow!("Invalid format: {}", format)),
-                }
-            }
-        }
-
-        info!("Saved {} ingresses to {}", saved_count, ingresses_dir);
-        Ok(saved_count)
-    }
-
-    /// Save individual persistentvolumeclaims to namespace/persistentvolumeclaims/ structure
-    pub fn save_persistentvolumeclaims_individually(
-        &self,
-        output_dir: &str,
-        namespace: &str,
-        pvcs: &[Value],
-        format: &str,
-    ) -> Result<usize> {
-        let pvcs_dir = format!("{}/{}/persistentvolumeclaims", output_dir, namespace);
-        fs::create_dir_all(&pvcs_dir)
-            .context("Failed to create namespace persistentvolumeclaims directory")?;
-
-        let mut saved_count = 0;
-        for pvc in pvcs {
-            if let Some(pvc_name) = pvc
-                .get("metadata")
-                .and_then(|m| m.get("name"))
-                .and_then(|n| n.as_str())
-            {
-                match format {
-                    "json" => {
-                        let filename = format!("{}/{}.json", pvcs_dir, pvc_name);
-                        let content = serde_json::to_string_pretty(pvc)?;
-                        fs::write(&filename, content)?;
-                        saved_count += 1;
-                    }
-                    "yaml" => {
-                        let filename = format!("{}/{}.yaml", pvcs_dir, pvc_name);
-                        let content = serde_yaml::to_string(pvc)?;
-                        fs::write(&filename, content)?;
-                        saved_count += 1;
-                    }
-                    "both" => {
-                        let json_file = format!("{}/{}.json", pvcs_dir, pvc_name);
-                        let yaml_file = format!("{}/{}.yaml", pvcs_dir, pvc_name);
-
-                        let json_content = serde_json::to_string_pretty(pvc)?;
-                        let yaml_content = serde_yaml::to_string(pvc)?;
+                        let json_content = serde_json::to_string_pretty(resource)?;
+                        let yaml_content = serde_yaml::to_string(resource)?;
 
                         fs::write(&json_file, json_content)?;
                         fs::write(&yaml_file, yaml_content)?;
@@ -413,67 +137,8 @@ impl OutputManager {
         }
 
         info!(
-            "Saved {} persistentvolumeclaims to {}",
-            saved_count, pvcs_dir
-        );
-        Ok(saved_count)
-    }
-
-    /// Save individual networkpolicies to namespace/networkpolicies/ structure
-    pub fn save_networkpolicies_individually(
-        &self,
-        output_dir: &str,
-        namespace: &str,
-        networkpolicies: &[Value],
-        format: &str,
-    ) -> Result<usize> {
-        let networkpolicies_dir = format!("{}/{}/networkpolicies", output_dir, namespace);
-        fs::create_dir_all(&networkpolicies_dir)
-            .context("Failed to create namespace networkpolicies directory")?;
-
-        let mut saved_count = 0;
-        for networkpolicy in networkpolicies {
-            if let Some(networkpolicy_name) = networkpolicy
-                .get("metadata")
-                .and_then(|m| m.get("name"))
-                .and_then(|n| n.as_str())
-            {
-                match format {
-                    "json" => {
-                        let filename =
-                            format!("{}/{}.json", networkpolicies_dir, networkpolicy_name);
-                        let content = serde_json::to_string_pretty(networkpolicy)?;
-                        fs::write(&filename, content)?;
-                        saved_count += 1;
-                    }
-                    "yaml" => {
-                        let filename =
-                            format!("{}/{}.yaml", networkpolicies_dir, networkpolicy_name);
-                        let content = serde_yaml::to_string(networkpolicy)?;
-                        fs::write(&filename, content)?;
-                        saved_count += 1;
-                    }
-                    "both" => {
-                        let json_file =
-                            format!("{}/{}.json", networkpolicies_dir, networkpolicy_name);
-                        let yaml_file =
-                            format!("{}/{}.yaml", networkpolicies_dir, networkpolicy_name);
-
-                        let json_content = serde_json::to_string_pretty(networkpolicy)?;
-                        let yaml_content = serde_yaml::to_string(networkpolicy)?;
-
-                        fs::write(&json_file, json_content)?;
-                        fs::write(&yaml_file, yaml_content)?;
-                        saved_count += 1;
-                    }
-                    _ => return Err(anyhow::anyhow!("Invalid format: {}", format)),
-                }
-            }
-        }
-
-        info!(
-            "Saved {} networkpolicies to {}",
-            saved_count, networkpolicies_dir
+            "Saved {} {} to {}",
+            saved_count, resource_type, resource_dir
         );
         Ok(saved_count)
     }
@@ -492,6 +157,24 @@ impl OutputManager {
         let mut total_ingresses = 0;
         let mut total_pvcs = 0;
         let mut total_networkpolicies = 0;
+        // Workload controllers
+        let mut total_replicasets = 0;
+        let mut total_daemonsets = 0;
+        let mut total_statefulsets = 0;
+        let mut total_jobs = 0;
+        let mut total_cronjobs = 0;
+        // RBAC resources
+        let mut total_serviceaccounts = 0;
+        let mut total_roles = 0;
+        let mut total_rolebindings = 0;
+        // Resource management
+        let mut total_resourcequotas = 0;
+        let mut total_limitranges = 0;
+        let mut total_horizontalpodautoscalers = 0;
+        let mut total_poddisruptionbudgets = 0;
+        // Network resources
+        let mut total_endpoints = 0;
+        let mut total_endpointslices = 0;
         let mut namespace_details = serde_json::Map::new();
 
         for stats in namespace_stats {
@@ -503,10 +186,29 @@ impl OutputManager {
             total_ingresses += stats.ingresses;
             total_pvcs += stats.pvcs;
             total_networkpolicies += stats.networkpolicies;
+            // Workload controllers
+            total_replicasets += stats.replicasets;
+            total_daemonsets += stats.daemonsets;
+            total_statefulsets += stats.statefulsets;
+            total_jobs += stats.jobs;
+            total_cronjobs += stats.cronjobs;
+            // RBAC resources
+            total_serviceaccounts += stats.serviceaccounts;
+            total_roles += stats.roles;
+            total_rolebindings += stats.rolebindings;
+            // Resource management
+            total_resourcequotas += stats.resourcequotas;
+            total_limitranges += stats.limitranges;
+            total_horizontalpodautoscalers += stats.horizontalpodautoscalers;
+            total_poddisruptionbudgets += stats.poddisruptionbudgets;
+            // Network resources
+            total_endpoints += stats.endpoints;
+            total_endpointslices += stats.endpointslices;
 
             namespace_details.insert(
                 stats.namespace.clone(),
                 serde_json::json!({
+                    // Core resources
                     "pods_collected": stats.pods,
                     "services_collected": stats.services,
                     "deployments_collected": stats.deployments,
@@ -515,7 +217,25 @@ impl OutputManager {
                     "ingresses_collected": stats.ingresses,
                     "persistentvolumeclaims_collected": stats.pvcs,
                     "networkpolicies_collected": stats.networkpolicies,
-                    "a_summary_of_total_resources": stats.total_resources()  // ← Use our new method!
+                    // Workload controllers
+                    "replicasets_collected": stats.replicasets,
+                    "daemonsets_collected": stats.daemonsets,
+                    "statefulsets_collected": stats.statefulsets,
+                    "jobs_collected": stats.jobs,
+                    "cronjobs_collected": stats.cronjobs,
+                    // RBAC resources
+                    "serviceaccounts_collected": stats.serviceaccounts,
+                    "roles_collected": stats.roles,
+                    "rolebindings_collected": stats.rolebindings,
+                    // Resource management
+                    "resourcequotas_collected": stats.resourcequotas,
+                    "limitranges_collected": stats.limitranges,
+                    "horizontalpodautoscalers_collected": stats.horizontalpodautoscalers,
+                    "poddisruptionbudgets_collected": stats.poddisruptionbudgets,
+                    // Network resources
+                    "endpoints_collected": stats.endpoints,
+                    "endpointslices_collected": stats.endpointslices,
+                    "a_summary_of_total_resources": stats.total_resources()
                 }),
             );
         }
@@ -528,6 +248,7 @@ impl OutputManager {
             },
             "cluster_summary": {
                 "total_namespaces": namespace_stats.len(),
+                // Core resources
                 "total_pods": total_pods,
                 "total_services": total_services,
                 "total_deployments": total_deployments,
@@ -536,7 +257,25 @@ impl OutputManager {
                 "total_ingresses": total_ingresses,
                 "total_persistentvolumeclaims": total_pvcs,
                 "total_networkpolicies": total_networkpolicies,
-                "a_summary_of_total_resources": total_pods + total_services + total_deployments + total_configmaps + total_secrets + total_ingresses + total_pvcs + total_networkpolicies
+                // Workload controllers
+                "total_replicasets": total_replicasets,
+                "total_daemonsets": total_daemonsets,
+                "total_statefulsets": total_statefulsets,
+                "total_jobs": total_jobs,
+                "total_cronjobs": total_cronjobs,
+                // RBAC resources
+                "total_serviceaccounts": total_serviceaccounts,
+                "total_roles": total_roles,
+                "total_rolebindings": total_rolebindings,
+                // Resource management
+                "total_resourcequotas": total_resourcequotas,
+                "total_limitranges": total_limitranges,
+                "total_horizontalpodautoscalers": total_horizontalpodautoscalers,
+                "total_poddisruptionbudgets": total_poddisruptionbudgets,
+                // Network resources
+                "total_endpoints": total_endpoints,
+                "total_endpointslices": total_endpointslices,
+                "a_summary_of_total_resources": total_pods + total_services + total_deployments + total_configmaps + total_secrets + total_ingresses + total_pvcs + total_networkpolicies + total_replicasets + total_daemonsets + total_statefulsets + total_jobs + total_cronjobs + total_serviceaccounts + total_roles + total_rolebindings + total_resourcequotas + total_limitranges + total_horizontalpodautoscalers + total_poddisruptionbudgets + total_endpoints + total_endpointslices
             },
             "namespace_details": namespace_details
         });

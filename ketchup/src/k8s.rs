@@ -1,9 +1,15 @@
 use anyhow::{Context, Result};
-use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet};
+use k8s_openapi::api::autoscaling::v1::HorizontalPodAutoscaler;
+use k8s_openapi::api::batch::v1::{CronJob, Job};
 use k8s_openapi::api::core::v1::{
-    ConfigMap, Namespace, PersistentVolumeClaim, Pod, Secret, Service,
+    ConfigMap, Endpoints, LimitRange, Namespace, PersistentVolumeClaim, Pod, ResourceQuota, Secret,
+    Service, ServiceAccount,
 };
+use k8s_openapi::api::discovery::v1::EndpointSlice;
 use k8s_openapi::api::networking::v1::{Ingress, NetworkPolicy};
+use k8s_openapi::api::policy::v1::PodDisruptionBudget;
+use k8s_openapi::api::rbac::v1::{Role, RoleBinding};
 use kube::{Api, Client, Config};
 use serde_json::Value;
 use tracing::{debug, info, warn};
@@ -160,6 +166,91 @@ impl KubeClient {
     /// Collect networkpolicies from specified namespaces
     pub async fn collect_networkpolicies(&self, namespaces: &[String]) -> Result<Vec<Value>> {
         self.collect_resources::<NetworkPolicy>(namespaces, "networkpolicies")
+            .await
+    }
+
+    /// Collect replicasets from specified namespaces
+    pub async fn collect_replicasets(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        self.collect_resources::<ReplicaSet>(namespaces, "replicasets")
+            .await
+    }
+
+    /// Collect daemonsets from specified namespaces
+    pub async fn collect_daemonsets(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        self.collect_resources::<DaemonSet>(namespaces, "daemonsets")
+            .await
+    }
+
+    /// Collect statefulsets from specified namespaces
+    pub async fn collect_statefulsets(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        self.collect_resources::<StatefulSet>(namespaces, "statefulsets")
+            .await
+    }
+
+    /// Collect jobs from specified namespaces
+    pub async fn collect_jobs(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        self.collect_resources::<Job>(namespaces, "jobs").await
+    }
+
+    /// Collect cronjobs from specified namespaces
+    pub async fn collect_cronjobs(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        self.collect_resources::<CronJob>(namespaces, "cronjobs")
+            .await
+    }
+
+    /// Collect serviceaccounts from specified namespaces
+    pub async fn collect_serviceaccounts(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        self.collect_resources::<ServiceAccount>(namespaces, "serviceaccounts")
+            .await
+    }
+
+    /// Collect roles from specified namespaces
+    pub async fn collect_roles(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        self.collect_resources::<Role>(namespaces, "roles").await
+    }
+
+    /// Collect rolebindings from specified namespaces
+    pub async fn collect_rolebindings(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        self.collect_resources::<RoleBinding>(namespaces, "rolebindings")
+            .await
+    }
+
+    /// Collect resourcequotas from specified namespaces
+    pub async fn collect_resourcequotas(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        self.collect_resources::<ResourceQuota>(namespaces, "resourcequotas")
+            .await
+    }
+
+    /// Collect limitranges from specified namespaces
+    pub async fn collect_limitranges(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        self.collect_resources::<LimitRange>(namespaces, "limitranges")
+            .await
+    }
+
+    /// Collect horizontalpodautoscalers from specified namespaces
+    pub async fn collect_horizontalpodautoscalers(
+        &self,
+        namespaces: &[String],
+    ) -> Result<Vec<Value>> {
+        self.collect_resources::<HorizontalPodAutoscaler>(namespaces, "horizontalpodautoscalers")
+            .await
+    }
+
+    /// Collect poddisruptionbudgets from specified namespaces
+    pub async fn collect_poddisruptionbudgets(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        self.collect_resources::<PodDisruptionBudget>(namespaces, "poddisruptionbudgets")
+            .await
+    }
+
+    /// Collect endpoints from specified namespaces
+    pub async fn collect_endpoints(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        self.collect_resources::<Endpoints>(namespaces, "endpoints")
+            .await
+    }
+
+    /// Collect endpointslices from specified namespaces
+    pub async fn collect_endpointslices(&self, namespaces: &[String]) -> Result<Vec<Value>> {
+        self.collect_resources::<EndpointSlice>(namespaces, "endpointslices")
             .await
     }
 }
