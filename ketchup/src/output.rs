@@ -63,6 +63,43 @@ impl NamespaceStats {
     }
 }
 
+// Helper structs for resource categorization
+#[derive(Default)]
+struct WorkloadResources {
+    total: usize,
+    pods: usize,
+    deployments: usize,
+    jobs: usize,
+    daemonsets: usize,
+    statefulsets: usize,
+    cronjobs: usize,
+    replicasets: usize,
+}
+
+#[derive(Default)]
+struct SecurityResources {
+    total: usize,
+    service_accounts: usize,
+    roles: usize,
+    rolebindings: usize,
+}
+
+#[derive(Default)]
+struct ConfigurationResources {
+    total: usize,
+    configmaps: usize,
+    secrets: usize,
+}
+
+#[derive(Default)]
+struct NetworkingResources {
+    total: usize,
+    services: usize,
+    endpoints: usize,
+    ingresses: usize,
+    networkpolicies: usize,
+}
+
 pub struct OutputManager {
     base_dir: String,
     timestamp: DateTime<Utc>,
@@ -96,6 +133,11 @@ impl OutputManager {
         resource_type: &str,
         format: &str,
     ) -> Result<usize> {
+        // Skip empty resources - don't create directories for 0 resources
+        if resources.is_empty() {
+            return Ok(0);
+        }
+
         let resource_dir = format!("{}/{}/{}", output_dir, namespace, resource_type);
         fs::create_dir_all(&resource_dir)
             .with_context(|| format!("Failed to create namespace {} directory", resource_type))?;
@@ -143,201 +185,362 @@ impl OutputManager {
         Ok(saved_count)
     }
 
-    /// Create enhanced summary with per-namespace resource breakdown and cluster resources
+    /// Create enhanced summary with concise, organized output (Option 1)
     pub fn create_enhanced_summary(
         &self,
         output_dir: &str,
         namespace_stats: &[NamespaceStats],
         cluster_stats: &std::collections::HashMap<String, usize>,
     ) -> Result<()> {
-        let mut total_pods = 0;
-        let mut total_services = 0;
-        let mut total_deployments = 0;
-        let mut total_configmaps = 0;
-        let mut total_secrets = 0;
-        let mut total_ingresses = 0;
-        let mut total_pvcs = 0;
-        let mut total_networkpolicies = 0;
-        // Workload controllers
-        let mut total_replicasets = 0;
-        let mut total_daemonsets = 0;
-        let mut total_statefulsets = 0;
-        let mut total_jobs = 0;
-        let mut total_cronjobs = 0;
-        // RBAC resources
-        let mut total_serviceaccounts = 0;
-        let mut total_roles = 0;
-        let mut total_rolebindings = 0;
-        // Resource management
-        let mut total_resourcequotas = 0;
-        let mut total_limitranges = 0;
-        let mut total_horizontalpodautoscalers = 0;
-        let mut total_poddisruptionbudgets = 0;
-        // Network resources
-        let mut total_endpoints = 0;
-        let mut total_endpointslices = 0;
-        let mut namespace_details = serde_json::Map::new();
+        // Calculate totals for cluster overview
+        let mut total_namespaced_resources = 0;
+        let mut active_namespaces = Vec::new();
 
+        // Collect namespace data and filter out empty namespaces
         for stats in namespace_stats {
-            total_pods += stats.pods;
-            total_services += stats.services;
-            total_deployments += stats.deployments;
-            total_configmaps += stats.configmaps;
-            total_secrets += stats.secrets;
-            total_ingresses += stats.ingresses;
-            total_pvcs += stats.pvcs;
-            total_networkpolicies += stats.networkpolicies;
-            // Workload controllers
-            total_replicasets += stats.replicasets;
-            total_daemonsets += stats.daemonsets;
-            total_statefulsets += stats.statefulsets;
-            total_jobs += stats.jobs;
-            total_cronjobs += stats.cronjobs;
-            // RBAC resources
-            total_serviceaccounts += stats.serviceaccounts;
-            total_roles += stats.roles;
-            total_rolebindings += stats.rolebindings;
-            // Resource management
-            total_resourcequotas += stats.resourcequotas;
-            total_limitranges += stats.limitranges;
-            total_horizontalpodautoscalers += stats.horizontalpodautoscalers;
-            total_poddisruptionbudgets += stats.poddisruptionbudgets;
-            // Network resources
-            total_endpoints += stats.endpoints;
-            total_endpointslices += stats.endpointslices;
+            let namespace_total = stats.total_resources();
+            if namespace_total > 0 {
+                total_namespaced_resources += namespace_total;
+                active_namespaces.push((stats.namespace.clone(), namespace_total));
+            }
+        }
 
-            namespace_details.insert(
-                stats.namespace.clone(),
-                serde_json::json!({
-                    // Core resources
-                    "pods_collected": stats.pods,
-                    "services_collected": stats.services,
-                    "deployments_collected": stats.deployments,
-                    "configmaps_collected": stats.configmaps,
-                    "secrets_collected": stats.secrets,
-                    "ingresses_collected": stats.ingresses,
-                    "persistentvolumeclaims_collected": stats.pvcs,
-                    "networkpolicies_collected": stats.networkpolicies,
-                    // Workload controllers
-                    "replicasets_collected": stats.replicasets,
-                    "daemonsets_collected": stats.daemonsets,
-                    "statefulsets_collected": stats.statefulsets,
-                    "jobs_collected": stats.jobs,
-                    "cronjobs_collected": stats.cronjobs,
-                    // RBAC resources
-                    "serviceaccounts_collected": stats.serviceaccounts,
-                    "roles_collected": stats.roles,
-                    "rolebindings_collected": stats.rolebindings,
-                    // Resource management
-                    "resourcequotas_collected": stats.resourcequotas,
-                    "limitranges_collected": stats.limitranges,
-                    "horizontalpodautoscalers_collected": stats.horizontalpodautoscalers,
-                    "poddisruptionbudgets_collected": stats.poddisruptionbudgets,
-                    // Network resources
-                    "endpoints_collected": stats.endpoints,
-                    "endpointslices_collected": stats.endpointslices,
-                    "a_summary_of_total_resources": stats.total_resources()
-                }),
+        // Calculate cluster resource totals (only non-zero)
+        let mut cluster_resource_map = std::collections::HashMap::new();
+        let mut total_cluster_resources = 0;
+
+        for (resource_type, count) in cluster_stats {
+            if *count > 0 {
+                cluster_resource_map.insert(resource_type.clone(), *count);
+                total_cluster_resources += count;
+            }
+        }
+
+        let grand_total = total_namespaced_resources + total_cluster_resources;
+
+        // Build namespace details (only active namespaces)
+        let mut namespace_details = serde_json::Map::new();
+        for stats in namespace_stats {
+            if stats.total_resources() > 0 {
+                let primary_purpose = Self::determine_namespace_purpose(&stats.namespace);
+                namespace_details.insert(
+                    stats.namespace.clone(),
+                    serde_json::json!({
+                        "resources": stats.total_resources(),
+                        "primary": primary_purpose
+                    }),
+                );
+            }
+        }
+
+        // Calculate resource highlights (only non-zero categories)
+        let (workload_resources, security_resources, configuration_resources, networking_resources) =
+            self.calculate_resource_highlights(namespace_stats);
+
+        let mut resource_highlights = serde_json::Map::new();
+
+        // Only include categories with resources
+        if workload_resources.total > 0 {
+            let mut workloads = serde_json::Map::new();
+            if workload_resources.pods > 0 {
+                workloads.insert("pods".to_string(), workload_resources.pods.into());
+            }
+            if workload_resources.deployments > 0 {
+                workloads.insert(
+                    "deployments".to_string(),
+                    workload_resources.deployments.into(),
+                );
+            }
+            if workload_resources.jobs > 0 {
+                workloads.insert("jobs".to_string(), workload_resources.jobs.into());
+            }
+            if workload_resources.daemonsets > 0 {
+                workloads.insert(
+                    "daemon_sets".to_string(),
+                    workload_resources.daemonsets.into(),
+                );
+            }
+            if workload_resources.statefulsets > 0 {
+                workloads.insert(
+                    "stateful_sets".to_string(),
+                    workload_resources.statefulsets.into(),
+                );
+            }
+            if workload_resources.cronjobs > 0 {
+                workloads.insert("cron_jobs".to_string(), workload_resources.cronjobs.into());
+            }
+            if workload_resources.replicasets > 0 {
+                workloads.insert(
+                    "replica_sets".to_string(),
+                    workload_resources.replicasets.into(),
+                );
+            }
+
+            if !workloads.is_empty() {
+                resource_highlights.insert(
+                    "workloads".to_string(),
+                    serde_json::Value::Object(workloads),
+                );
+            }
+        }
+
+        if security_resources.total > 0 {
+            let mut security = serde_json::Map::new();
+            if security_resources.service_accounts > 0 {
+                security.insert(
+                    "service_accounts".to_string(),
+                    security_resources.service_accounts.into(),
+                );
+            }
+            security.insert(
+                "total_rbac_resources".to_string(),
+                security_resources.total.into(),
+            );
+            resource_highlights.insert("security".to_string(), serde_json::Value::Object(security));
+        }
+
+        if configuration_resources.total > 0 {
+            let mut config = serde_json::Map::new();
+            if configuration_resources.configmaps > 0 {
+                config.insert(
+                    "config_maps".to_string(),
+                    configuration_resources.configmaps.into(),
+                );
+            }
+            if configuration_resources.secrets > 0 {
+                config.insert(
+                    "secrets".to_string(),
+                    configuration_resources.secrets.into(),
+                );
+            }
+            resource_highlights.insert(
+                "configuration".to_string(),
+                serde_json::Value::Object(config),
             );
         }
 
-        // Calculate cluster resource totals
-        let total_clusterroles = cluster_stats.get("clusterroles").unwrap_or(&0);
-        let total_clusterrolebindings = cluster_stats.get("clusterrolebindings").unwrap_or(&0);
-        let total_nodes = cluster_stats.get("nodes").unwrap_or(&0);
-        let total_persistentvolumes = cluster_stats.get("persistentvolumes").unwrap_or(&0);
-        let total_storageclasses = cluster_stats.get("storageclasses").unwrap_or(&0);
-        let total_customresourcedefinitions =
-            cluster_stats.get("customresourcedefinitions").unwrap_or(&0);
+        if networking_resources.total > 0 {
+            let mut networking = serde_json::Map::new();
+            if networking_resources.services > 0 {
+                networking.insert("services".to_string(), networking_resources.services.into());
+            }
+            if networking_resources.endpoints > 0 {
+                networking.insert(
+                    "endpoints".to_string(),
+                    networking_resources.endpoints.into(),
+                );
+            }
+            if networking_resources.ingresses > 0 {
+                networking.insert(
+                    "ingresses".to_string(),
+                    networking_resources.ingresses.into(),
+                );
+            }
+            if networking_resources.networkpolicies > 0 {
+                networking.insert(
+                    "network_policies".to_string(),
+                    networking_resources.networkpolicies.into(),
+                );
+            }
+            resource_highlights.insert(
+                "networking".to_string(),
+                serde_json::Value::Object(networking),
+            );
+        }
 
-        // Calculate grand total including all cluster resources
-        let namespaced_total = total_pods
-            + total_services
-            + total_deployments
-            + total_configmaps
-            + total_secrets
-            + total_ingresses
-            + total_pvcs
-            + total_networkpolicies
-            + total_replicasets
-            + total_daemonsets
-            + total_statefulsets
-            + total_jobs
-            + total_cronjobs
-            + total_serviceaccounts
-            + total_roles
-            + total_rolebindings
-            + total_resourcequotas
-            + total_limitranges
-            + total_horizontalpodautoscalers
-            + total_poddisruptionbudgets
-            + total_endpoints
-            + total_endpointslices;
-        let cluster_total = total_clusterroles
-            + total_clusterrolebindings
-            + total_nodes
-            + total_persistentvolumes
-            + total_storageclasses
-            + total_customresourcedefinitions;
-        let grand_total = namespaced_total + cluster_total;
+        // Count directory structure (only non-empty)
+        let cluster_dir_types = cluster_resource_map.len();
+        let mut namespace_dir_info = Vec::new();
+        for stats in namespace_stats {
+            if stats.total_resources() > 0 {
+                let non_empty_types = self.count_non_empty_resource_types(stats);
+                namespace_dir_info.push(format!(
+                    "{}/ ({} resource types)",
+                    stats.namespace, non_empty_types
+                ));
+            }
+        }
 
+        // Build the summary
         let summary = serde_json::json!({
             "collection_info": {
                 "timestamp": self.timestamp.to_rfc3339(),
                 "tool": "ketchup",
                 "version": env!("CARGO_PKG_VERSION")
             },
-            "cluster_summary": {
-                "total_namespaces": namespace_stats.len(),
-                // Core resources
-                "total_pods": total_pods,
-                "total_services": total_services,
-                "total_deployments": total_deployments,
-                "total_configmaps": total_configmaps,
-                "total_secrets": total_secrets,
-                "total_ingresses": total_ingresses,
-                "total_persistentvolumeclaims": total_pvcs,
-                "total_networkpolicies": total_networkpolicies,
-                // Workload controllers
-                "total_replicasets": total_replicasets,
-                "total_daemonsets": total_daemonsets,
-                "total_statefulsets": total_statefulsets,
-                "total_jobs": total_jobs,
-                "total_cronjobs": total_cronjobs,
-                // RBAC resources
-                "total_serviceaccounts": total_serviceaccounts,
-                "total_roles": total_roles,
-                "total_rolebindings": total_rolebindings,
-                // Resource management
-                "total_resourcequotas": total_resourcequotas,
-                "total_limitranges": total_limitranges,
-                "total_horizontalpodautoscalers": total_horizontalpodautoscalers,
-                "total_poddisruptionbudgets": total_poddisruptionbudgets,
-                // Network resources
-                "total_endpoints": total_endpoints,
-                "total_endpointslices": total_endpointslices,
-                "a_summary_of_total_resources": grand_total
+            "cluster_overview": {
+                "total_resources": grand_total,
+                "namespaces": active_namespaces.len(),
+                "cluster_resources": total_cluster_resources,
+                "namespaced_resources": total_namespaced_resources
             },
-            "cluster_resources": {
-                "total_clusterroles": total_clusterroles,
-                "total_clusterrolebindings": total_clusterrolebindings,
-                "total_nodes": total_nodes,
-                "total_persistentvolumes": total_persistentvolumes,
-                "total_storageclasses": total_storageclasses,
-                "total_customresourcedefinitions": total_customresourcedefinitions,
-                "cluster_resources_total": cluster_total
-            },
-            "namespace_details": namespace_details
+            "cluster_resources": cluster_resource_map,
+            "namespaces": namespace_details,
+            "resource_highlights": resource_highlights,
+            "output_structure": {
+                "total_files": grand_total,
+                "formats": ["yaml"],
+                "compression": "gzip",
+                "directory_structure": {
+                    "cluster_wide": format!("cluster-wide/ ({} resource types)", cluster_dir_types),
+                    "namespaces": namespace_dir_info
+                }
+            }
         });
 
         let filename = format!("{}/collection-summary.yaml", output_dir);
-        info!("Creating enhanced collection summary: {}", filename);
+        info!("Creating concise collection summary: {}", filename);
 
         let summary_content =
             serde_yaml::to_string(&summary).context("Failed to serialize summary to YAML")?;
         fs::write(&filename, summary_content).context("Failed to write YAML summary file")?;
 
         Ok(())
+    }
+
+    // Helper function to determine namespace purpose
+    fn determine_namespace_purpose(namespace: &str) -> &'static str {
+        match namespace {
+            "kube-system" => "workloads + system config",
+            "default" => "user workloads",
+            "kube-public" => "cluster info",
+            "kube-node-lease" => "node coordination",
+            _ if namespace.starts_with("istio") => "service mesh",
+            _ if namespace.contains("monitoring") => "observability",
+            _ if namespace.contains("ingress") => "traffic routing",
+            _ => "application workloads",
+        }
+    }
+
+    // Helper function to calculate resource highlights
+    fn calculate_resource_highlights(
+        &self,
+        namespace_stats: &[NamespaceStats],
+    ) -> (
+        WorkloadResources,
+        SecurityResources,
+        ConfigurationResources,
+        NetworkingResources,
+    ) {
+        let mut workloads = WorkloadResources::default();
+        let mut security = SecurityResources::default();
+        let mut configuration = ConfigurationResources::default();
+        let mut networking = NetworkingResources::default();
+
+        for stats in namespace_stats {
+            // Workloads
+            workloads.pods += stats.pods;
+            workloads.deployments += stats.deployments;
+            workloads.jobs += stats.jobs;
+            workloads.daemonsets += stats.daemonsets;
+            workloads.statefulsets += stats.statefulsets;
+            workloads.cronjobs += stats.cronjobs;
+            workloads.replicasets += stats.replicasets;
+
+            // Security/RBAC
+            security.service_accounts += stats.serviceaccounts;
+            security.roles += stats.roles;
+            security.rolebindings += stats.rolebindings;
+
+            // Configuration
+            configuration.configmaps += stats.configmaps;
+            configuration.secrets += stats.secrets;
+
+            // Networking
+            networking.services += stats.services;
+            networking.endpoints += stats.endpoints;
+            networking.ingresses += stats.ingresses;
+            networking.networkpolicies += stats.networkpolicies;
+        }
+
+        workloads.total = workloads.pods
+            + workloads.deployments
+            + workloads.jobs
+            + workloads.daemonsets
+            + workloads.statefulsets
+            + workloads.cronjobs
+            + workloads.replicasets;
+
+        security.total = security.service_accounts + security.roles + security.rolebindings;
+        configuration.total = configuration.configmaps + configuration.secrets;
+        networking.total = networking.services
+            + networking.endpoints
+            + networking.ingresses
+            + networking.networkpolicies;
+
+        (workloads, security, configuration, networking)
+    }
+
+    // Helper function to count non-empty resource types per namespace
+    fn count_non_empty_resource_types(&self, stats: &NamespaceStats) -> usize {
+        let mut count = 0;
+        if stats.pods > 0 {
+            count += 1;
+        }
+        if stats.services > 0 {
+            count += 1;
+        }
+        if stats.deployments > 0 {
+            count += 1;
+        }
+        if stats.configmaps > 0 {
+            count += 1;
+        }
+        if stats.secrets > 0 {
+            count += 1;
+        }
+        if stats.ingresses > 0 {
+            count += 1;
+        }
+        if stats.pvcs > 0 {
+            count += 1;
+        }
+        if stats.networkpolicies > 0 {
+            count += 1;
+        }
+        if stats.replicasets > 0 {
+            count += 1;
+        }
+        if stats.daemonsets > 0 {
+            count += 1;
+        }
+        if stats.statefulsets > 0 {
+            count += 1;
+        }
+        if stats.jobs > 0 {
+            count += 1;
+        }
+        if stats.cronjobs > 0 {
+            count += 1;
+        }
+        if stats.serviceaccounts > 0 {
+            count += 1;
+        }
+        if stats.roles > 0 {
+            count += 1;
+        }
+        if stats.rolebindings > 0 {
+            count += 1;
+        }
+        if stats.resourcequotas > 0 {
+            count += 1;
+        }
+        if stats.limitranges > 0 {
+            count += 1;
+        }
+        if stats.horizontalpodautoscalers > 0 {
+            count += 1;
+        }
+        if stats.poddisruptionbudgets > 0 {
+            count += 1;
+        }
+        if stats.endpoints > 0 {
+            count += 1;
+        }
+        if stats.endpointslices > 0 {
+            count += 1;
+        }
+        count
     }
 
     /// Create archive based on compression preference
