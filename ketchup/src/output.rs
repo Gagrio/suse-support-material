@@ -178,7 +178,7 @@ impl OutputManager {
             }
         }
 
-        debug!(
+        info!(
             "💾 Saved {} {} to {}",
             saved_count, resource_type, resource_dir
         );
@@ -389,7 +389,7 @@ impl OutputManager {
         });
 
         let filename = format!("{}/collection-summary.yaml", output_dir);
-        debug!("Creating concise collection summary: {}", filename);
+        info!("📋 Creating collection summary: {}", filename);
 
         // Create YAML with custom header and spacing
         let mut summary_content = String::new();
@@ -593,7 +593,7 @@ impl OutputManager {
     /// Create compressed archive of the output directory
     pub fn create_archive(&self, output_dir: &str) -> Result<String> {
         let archive_name = format!("{}.tar.gz", output_dir);
-        debug!("Creating compressed archive: {}", archive_name);
+        info!("📦 Creating archive: {}", archive_name);
 
         let tar_gz =
             std::fs::File::create(&archive_name).context("Failed to create archive file")?;
@@ -603,7 +603,7 @@ impl OutputManager {
         tar.append_dir_all(".", output_dir)
             .context("Failed to add directory to archive")?;
         tar.finish().context("Failed to finalize archive")?;
-        debug!("Archive created successfully: {}", archive_name);
+        info!("✅ Archive created: {}", archive_name);
 
         Ok(archive_name)
     }

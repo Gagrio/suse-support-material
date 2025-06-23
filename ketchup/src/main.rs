@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use serde_json::Value;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use output::{NamespaceStats, OutputManager};
 
@@ -48,13 +48,13 @@ async fn collect_namespaced_resources(
 ) -> Result<std::collections::HashMap<String, Vec<Value>>> {
     use std::collections::HashMap;
 
-    info!("🚀 Starting namespaced resource collection...");
+    warn!("🚀 Starting namespaced resource collection...");
 
     let mut resources = HashMap::new();
 
     // Core resources
     let pods = kube_client.collect_pods(namespaces).await?;
-    info!("✅ Successfully collected {} pods total", pods.len());
+    warn!("✅ Successfully collected {} pods total", pods.len());
     resources.insert("pods".to_string(), pods);
 
     let services = kube_client.collect_services(namespaces).await?;
@@ -214,45 +214,45 @@ async fn collect_cluster_resources(
 ) -> Result<std::collections::HashMap<String, Vec<Value>>> {
     use std::collections::HashMap;
 
-    info!("☸️ Starting cluster-scoped resource collection...");
+    warn!("☸️ Starting cluster-scoped resource collection...");
 
     let mut resources = HashMap::new();
 
     // Cluster-scoped resources
     let clusterroles = kube_client.collect_clusterroles().await?;
-    info!(
+    warn!(
         "🎭 Successfully collected {} clusterroles total",
         clusterroles.len()
     );
     resources.insert("clusterroles".to_string(), clusterroles);
 
     let clusterrolebindings = kube_client.collect_clusterrolebindings().await?;
-    info!(
+    warn!(
         "🔗 Successfully collected {} clusterrolebindings total",
         clusterrolebindings.len()
     );
     resources.insert("clusterrolebindings".to_string(), clusterrolebindings);
 
     let nodes = kube_client.collect_nodes().await?;
-    info!("🖥️ Successfully collected {} nodes total", nodes.len());
+    warn!("🖥️ Successfully collected {} nodes total", nodes.len());
     resources.insert("nodes".to_string(), nodes);
 
     let persistentvolumes = kube_client.collect_persistentvolumes().await?;
-    info!(
+    warn!(
         "💽 Successfully collected {} persistentvolumes total",
         persistentvolumes.len()
     );
     resources.insert("persistentvolumes".to_string(), persistentvolumes);
 
     let storageclasses = kube_client.collect_storageclasses().await?;
-    info!(
+    warn!(
         "📦 Successfully collected {} storageclasses total",
         storageclasses.len()
     );
     resources.insert("storageclasses".to_string(), storageclasses);
 
     let customresourcedefinitions = kube_client.collect_customresourcedefinitions().await?;
-    info!(
+    warn!(
         "🎯 Successfully collected {} customresourcedefinitions total",
         customresourcedefinitions.len()
     );
@@ -271,8 +271,8 @@ async fn main() -> Result<()> {
     // Initialize logging
     init_logging(args.verbose, args.debug);
 
-    info!("🍅 Starting Ketchup - Kubernetes Config Collector");
-    info!("📁 Using kubeconfig: {}", args.kubeconfig);
+    warn!("🍅 Starting Ketchup - Kubernetes Config Collector");
+    warn!("📁 Using kubeconfig: {}", args.kubeconfig);
 
     // Connect to Kubernetes using specified kubeconfig
     let kube_client = k8s::KubeClient::new_client(&args.kubeconfig).await?;
@@ -295,7 +295,7 @@ async fn main() -> Result<()> {
     let cluster_resources = collect_cluster_resources(&kube_client).await?;
 
     // Create output manager and save files
-    info!("💾 Setting up file output...");
+    warn!("💾 Setting up file output...");
     debug!(
         "Output format: {}, Compression: {}",
         args.format, args.compression
@@ -420,8 +420,8 @@ async fn main() -> Result<()> {
         debug!("📦 Archive created: {}", archive_path);
     }
 
-    info!("💾 Files saved to: {}", output_dir);
-    info!("🎉 Collection completed successfully");
+    warn!("💾 Files saved to: {}", output_dir);
+    warn!("🎉 Collection completed successfully");
     Ok(())
 }
 
@@ -429,9 +429,9 @@ fn init_logging(verbose: bool, debug: bool) {
     let level = if debug {
         tracing::Level::DEBUG
     } else if verbose {
-        tracing::Level::INFO
+        tracing::Level::INFO // Verbose: show everything at INFO level
     } else {
-        tracing::Level::INFO // Default mode: show main progress with emojis
+        tracing::Level::WARN // Default: show only main messages (we'll use warn! for main)
     };
 
     tracing_subscriber::fmt().with_max_level(level).init();
