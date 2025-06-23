@@ -38,13 +38,13 @@ struct Args {
     verbose: bool,
 }
 
-async fn collect_all_resources(
+async fn collect_namespaced_resources(
     kube_client: &k8s::KubeClient,
     namespaces: &[String],
 ) -> Result<std::collections::HashMap<String, Vec<Value>>> {
     use std::collections::HashMap;
 
-    info!("Starting resource collection...");
+    info!("Starting namespaced resource collection...");
 
     let mut resources = HashMap::new();
 
@@ -190,7 +190,19 @@ async fn collect_all_resources(
     );
     resources.insert("endpointslices".to_string(), endpointslices);
 
-    // Cluster-scoped resources (no namespace parameter)
+    Ok(resources)
+}
+
+async fn collect_cluster_resources(
+    kube_client: &k8s::KubeClient,
+) -> Result<std::collections::HashMap<String, Vec<Value>>> {
+    use std::collections::HashMap;
+
+    info!("Starting cluster-scoped resource collection...");
+
+    let mut resources = HashMap::new();
+
+    // Cluster-scoped resources
     let clusterroles = kube_client.collect_clusterroles().await?;
     info!(
         "Successfully collected {} clusterroles total",
@@ -204,6 +216,34 @@ async fn collect_all_resources(
         clusterrolebindings.len()
     );
     resources.insert("clusterrolebindings".to_string(), clusterrolebindings);
+
+    let nodes = kube_client.collect_nodes().await?;
+    info!("Successfully collected {} nodes total", nodes.len());
+    resources.insert("nodes".to_string(), nodes);
+
+    let persistentvolumes = kube_client.collect_persistentvolumes().await?;
+    info!(
+        "Successfully collected {} persistentvolumes total",
+        persistentvolumes.len()
+    );
+    resources.insert("persistentvolumes".to_string(), persistentvolumes);
+
+    let storageclasses = kube_client.collect_storageclasses().await?;
+    info!(
+        "Successfully collected {} storageclasses total",
+        storageclasses.len()
+    );
+    resources.insert("storageclasses".to_string(), storageclasses);
+
+    let customresourcedefinitions = kube_client.collect_customresourcedefinitions().await?;
+    info!(
+        "Successfully collected {} customresourcedefinitions total",
+        customresourcedefinitions.len()
+    );
+    resources.insert(
+        "customresourcedefinitions".to_string(),
+        customresourcedefinitions,
+    );
 
     Ok(resources)
 }
@@ -233,8 +273,10 @@ async fn main() -> Result<()> {
     info!("Will collect from namespaces: {:?}", verified_namespaces);
     info!("Output directory: {}", args.output);
 
-    // Collect all resources from verified namespaces
-    let resources = collect_all_resources(&kube_client, &verified_namespaces).await?;
+    // Collect resources using separate functions
+    let namespaced_resources =
+        collect_namespaced_resources(&kube_client, &verified_namespaces).await?;
+    let cluster_resources = collect_cluster_resources(&kube_client).await?;
 
     // Create output manager and save files
     info!("Setting up file output...");
@@ -280,15 +322,7 @@ async fn main() -> Result<()> {
         };
 
         // Process each namespaced resource type
-        for (resource_type, all_resources) in &resources {
-            // Skip cluster-scoped resources for now
-            if matches!(
-                resource_type.as_str(),
-                "clusterroles" | "clusterrolebindings"
-            ) {
-                continue;
-            }
-
+        for (resource_type, all_resources) in &namespaced_resources {
             // Filter resources by namespace
             let namespace_resources: Vec<Value> = all_resources
                 .iter()
@@ -346,26 +380,20 @@ async fn main() -> Result<()> {
         namespace_stats.push(stats);
     }
 
-    // Process cluster-scoped resources (they don't belong to specific namespaces)
+    // Process cluster-scoped resources
     let mut cluster_stats = std::collections::HashMap::new();
 
-    for (resource_type, cluster_resources) in &resources {
-        // Only process cluster-scoped resources
-        if matches!(
-            resource_type.as_str(),
-            "clusterroles" | "clusterrolebindings"
-        ) {
-            // Save cluster resources to root directory
-            let saved_count = output_manager.save_resources_individually(
-                &output_dir,
-                "cluster-wide", // Use "cluster-wide" as fake namespace
-                cluster_resources,
-                resource_type,
-                &args.format,
-            )?;
+    for (resource_type, cluster_resource_list) in &cluster_resources {
+        // Save cluster resources to cluster-wide directory
+        let saved_count = output_manager.save_resources_individually(
+            &output_dir,
+            "cluster-wide", // Use "cluster-wide" as directory name
+            cluster_resource_list,
+            resource_type,
+            &args.format,
+        )?;
 
-            cluster_stats.insert(resource_type.clone(), saved_count);
-        }
+        cluster_stats.insert(resource_type.clone(), saved_count);
     }
 
     // Create enhanced summary

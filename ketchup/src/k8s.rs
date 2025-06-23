@@ -296,4 +296,27 @@ impl KubeClient {
         self.collect_cluster_resources::<ClusterRoleBinding>("clusterrolebindings")
             .await
     }
+
+    /// Collect nodes (cluster-scoped)
+    pub async fn collect_nodes(&self) -> Result<Vec<Value>> {
+        self.collect_cluster_resources::<Node>("nodes").await
+    }
+
+    /// Collect persistent volumes (cluster-scoped)
+    pub async fn collect_persistentvolumes(&self) -> Result<Vec<Value>> {
+        self.collect_cluster_resources::<PersistentVolume>("persistentvolumes")
+            .await
+    }
+
+    /// Collect storage classes (cluster-scoped)
+    pub async fn collect_storageclasses(&self) -> Result<Vec<Value>> {
+        self.collect_cluster_resources::<StorageClass>("storageclasses")
+            .await
+    }
+
+    /// Collect custom resource definitions (cluster-scoped)
+    pub async fn collect_customresourcedefinitions(&self) -> Result<Vec<Value>> {
+        self.collect_cluster_resources::<CustomResourceDefinition>("customresourcedefinitions")
+            .await
+    }
 }

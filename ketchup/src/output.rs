@@ -244,8 +244,13 @@ impl OutputManager {
         // Calculate cluster resource totals
         let total_clusterroles = cluster_stats.get("clusterroles").unwrap_or(&0);
         let total_clusterrolebindings = cluster_stats.get("clusterrolebindings").unwrap_or(&0);
+        let total_nodes = cluster_stats.get("nodes").unwrap_or(&0);
+        let total_persistentvolumes = cluster_stats.get("persistentvolumes").unwrap_or(&0);
+        let total_storageclasses = cluster_stats.get("storageclasses").unwrap_or(&0);
+        let total_customresourcedefinitions =
+            cluster_stats.get("customresourcedefinitions").unwrap_or(&0);
 
-        // Calculate grand total including cluster resources
+        // Calculate grand total including all cluster resources
         let namespaced_total = total_pods
             + total_services
             + total_deployments
@@ -268,7 +273,12 @@ impl OutputManager {
             + total_poddisruptionbudgets
             + total_endpoints
             + total_endpointslices;
-        let cluster_total = total_clusterroles + total_clusterrolebindings;
+        let cluster_total = total_clusterroles
+            + total_clusterrolebindings
+            + total_nodes
+            + total_persistentvolumes
+            + total_storageclasses
+            + total_customresourcedefinitions;
         let grand_total = namespaced_total + cluster_total;
 
         let summary = serde_json::json!({
@@ -311,6 +321,10 @@ impl OutputManager {
             "cluster_resources": {
                 "total_clusterroles": total_clusterroles,
                 "total_clusterrolebindings": total_clusterrolebindings,
+                "total_nodes": total_nodes,
+                "total_persistentvolumes": total_persistentvolumes,
+                "total_storageclasses": total_storageclasses,
+                "total_customresourcedefinitions": total_customresourcedefinitions,
                 "cluster_resources_total": cluster_total
             },
             "namespace_details": namespace_details
