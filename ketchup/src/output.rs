@@ -143,11 +143,12 @@ impl OutputManager {
         Ok(saved_count)
     }
 
-    /// Create enhanced summary with per-namespace resource breakdown
+    /// Create enhanced summary with per-namespace resource breakdown and cluster resources
     pub fn create_enhanced_summary(
         &self,
         output_dir: &str,
         namespace_stats: &[NamespaceStats],
+        cluster_stats: &std::collections::HashMap<String, usize>,
     ) -> Result<()> {
         let mut total_pods = 0;
         let mut total_services = 0;
@@ -240,6 +241,36 @@ impl OutputManager {
             );
         }
 
+        // Calculate cluster resource totals
+        let total_clusterroles = cluster_stats.get("clusterroles").unwrap_or(&0);
+        let total_clusterrolebindings = cluster_stats.get("clusterrolebindings").unwrap_or(&0);
+
+        // Calculate grand total including cluster resources
+        let namespaced_total = total_pods
+            + total_services
+            + total_deployments
+            + total_configmaps
+            + total_secrets
+            + total_ingresses
+            + total_pvcs
+            + total_networkpolicies
+            + total_replicasets
+            + total_daemonsets
+            + total_statefulsets
+            + total_jobs
+            + total_cronjobs
+            + total_serviceaccounts
+            + total_roles
+            + total_rolebindings
+            + total_resourcequotas
+            + total_limitranges
+            + total_horizontalpodautoscalers
+            + total_poddisruptionbudgets
+            + total_endpoints
+            + total_endpointslices;
+        let cluster_total = total_clusterroles + total_clusterrolebindings;
+        let grand_total = namespaced_total + cluster_total;
+
         let summary = serde_json::json!({
             "collection_info": {
                 "timestamp": self.timestamp.to_rfc3339(),
@@ -275,7 +306,12 @@ impl OutputManager {
                 // Network resources
                 "total_endpoints": total_endpoints,
                 "total_endpointslices": total_endpointslices,
-                "a_summary_of_total_resources": total_pods + total_services + total_deployments + total_configmaps + total_secrets + total_ingresses + total_pvcs + total_networkpolicies + total_replicasets + total_daemonsets + total_statefulsets + total_jobs + total_cronjobs + total_serviceaccounts + total_roles + total_rolebindings + total_resourcequotas + total_limitranges + total_horizontalpodautoscalers + total_poddisruptionbudgets + total_endpoints + total_endpointslices
+                "a_summary_of_total_resources": grand_total
+            },
+            "cluster_resources": {
+                "total_clusterroles": total_clusterroles,
+                "total_clusterrolebindings": total_clusterrolebindings,
+                "cluster_resources_total": cluster_total
             },
             "namespace_details": namespace_details
         });

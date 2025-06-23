@@ -1,8 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
-use output::{NamespaceStats, OutputManager};
 use serde_json::Value;
 use tracing::info;
+
+use output::{NamespaceStats, OutputManager};
 
 mod k8s;
 mod output;
@@ -189,6 +190,21 @@ async fn collect_all_resources(
     );
     resources.insert("endpointslices".to_string(), endpointslices);
 
+    // Cluster-scoped resources (no namespace parameter)
+    let clusterroles = kube_client.collect_clusterroles().await?;
+    info!(
+        "Successfully collected {} clusterroles total",
+        clusterroles.len()
+    );
+    resources.insert("clusterroles".to_string(), clusterroles);
+
+    let clusterrolebindings = kube_client.collect_clusterrolebindings().await?;
+    info!(
+        "Successfully collected {} clusterrolebindings total",
+        clusterrolebindings.len()
+    );
+    resources.insert("clusterrolebindings".to_string(), clusterrolebindings);
+
     Ok(resources)
 }
 
@@ -229,7 +245,7 @@ async fn main() -> Result<()> {
     let output_manager = OutputManager::new_output_manager(args.output);
     let output_dir = output_manager.create_output_directory()?;
 
-    // Save all resources for each namespace
+    // Save all namespaced resources for each namespace
     let mut namespace_stats: Vec<NamespaceStats> = Vec::new();
 
     for namespace in &verified_namespaces {
@@ -263,8 +279,16 @@ async fn main() -> Result<()> {
             endpointslices: 0,
         };
 
-        // Process each resource type
+        // Process each namespaced resource type
         for (resource_type, all_resources) in &resources {
+            // Skip cluster-scoped resources for now
+            if matches!(
+                resource_type.as_str(),
+                "clusterroles" | "clusterrolebindings"
+            ) {
+                continue;
+            }
+
             // Filter resources by namespace
             let namespace_resources: Vec<Value> = all_resources
                 .iter()
@@ -319,22 +343,41 @@ async fn main() -> Result<()> {
             }
         }
 
-        // After processing ALL resource types for this namespace
         namespace_stats.push(stats);
-
-        // Create enhanced summary
-        output_manager.create_enhanced_summary(&output_dir, &namespace_stats)?;
-
-        // Handle compression based on user preference
-        if let Some(archive_path) =
-            output_manager.handle_compression(&output_dir, &args.compression)?
-        {
-            info!("Archive created: {}", archive_path);
-        }
-
-        info!("Files saved to: {}", output_dir);
-        info!("Collection completed successfully");
     }
+
+    // Process cluster-scoped resources (they don't belong to specific namespaces)
+    let mut cluster_stats = std::collections::HashMap::new();
+
+    for (resource_type, cluster_resources) in &resources {
+        // Only process cluster-scoped resources
+        if matches!(
+            resource_type.as_str(),
+            "clusterroles" | "clusterrolebindings"
+        ) {
+            // Save cluster resources to root directory
+            let saved_count = output_manager.save_resources_individually(
+                &output_dir,
+                "cluster-wide", // Use "cluster-wide" as fake namespace
+                cluster_resources,
+                resource_type,
+                &args.format,
+            )?;
+
+            cluster_stats.insert(resource_type.clone(), saved_count);
+        }
+    }
+
+    // Create enhanced summary
+    output_manager.create_enhanced_summary(&output_dir, &namespace_stats, &cluster_stats)?;
+
+    // Handle compression based on user preference
+    if let Some(archive_path) = output_manager.handle_compression(&output_dir, &args.compression)? {
+        info!("Archive created: {}", archive_path);
+    }
+
+    info!("Files saved to: {}", output_dir);
+    info!("Collection completed successfully");
     Ok(())
 }
 

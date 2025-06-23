@@ -3,13 +3,15 @@ use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet}
 use k8s_openapi::api::autoscaling::v1::HorizontalPodAutoscaler;
 use k8s_openapi::api::batch::v1::{CronJob, Job};
 use k8s_openapi::api::core::v1::{
-    ConfigMap, Endpoints, LimitRange, Namespace, PersistentVolumeClaim, Pod, ResourceQuota, Secret,
-    Service, ServiceAccount,
+    ConfigMap, Endpoints, LimitRange, Namespace, Node, PersistentVolume, PersistentVolumeClaim,
+    Pod, ResourceQuota, Secret, Service, ServiceAccount,
 };
 use k8s_openapi::api::discovery::v1::EndpointSlice;
 use k8s_openapi::api::networking::v1::{Ingress, NetworkPolicy};
 use k8s_openapi::api::policy::v1::PodDisruptionBudget;
-use k8s_openapi::api::rbac::v1::{Role, RoleBinding};
+use k8s_openapi::api::rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding};
+use k8s_openapi::api::storage::v1::StorageClass;
+use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{Api, Client, Config};
 use serde_json::Value;
 use tracing::{debug, info, warn};
@@ -251,6 +253,47 @@ impl KubeClient {
     /// Collect endpointslices from specified namespaces
     pub async fn collect_endpointslices(&self, namespaces: &[String]) -> Result<Vec<Value>> {
         self.collect_resources::<EndpointSlice>(namespaces, "endpointslices")
+            .await
+    }
+
+    /// Generic method to collect cluster-scoped Kubernetes resources
+    pub async fn collect_cluster_resources<T>(&self, resource_name: &str) -> Result<Vec<Value>>
+    where
+        T: k8s_openapi::Resource<Scope = k8s_openapi::ClusterResourceScope>
+            + k8s_openapi::Metadata<Ty = k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta>,
+        T: serde::Serialize + serde::de::DeserializeOwned,
+        T: Clone + std::fmt::Debug,
+    {
+        info!("Collecting cluster-scoped {}...", resource_name);
+        let api: Api<T> = Api::all(self.client.clone());
+
+        match api.list(&Default::default()).await {
+            Ok(resource_list) => {
+                let resource_count = resource_list.items.len();
+                let resources: Vec<Value> = resource_list
+                    .items
+                    .into_iter()
+                    .filter_map(|item| serde_json::to_value(&item).ok())
+                    .collect();
+                info!("Found {} cluster-scoped {}", resource_count, resource_name);
+                Ok(resources)
+            }
+            Err(e) => {
+                warn!("Failed to collect cluster-scoped {}: {}", resource_name, e);
+                Ok(Vec::new())
+            }
+        }
+    }
+
+    /// Collect cluster roles (cluster-scoped)
+    pub async fn collect_clusterroles(&self) -> Result<Vec<Value>> {
+        self.collect_cluster_resources::<ClusterRole>("clusterroles")
+            .await
+    }
+
+    /// Collect cluster role bindings (cluster-scoped)
+    pub async fn collect_clusterrolebindings(&self) -> Result<Vec<Value>> {
+        self.collect_cluster_resources::<ClusterRoleBinding>("clusterrolebindings")
             .await
     }
 }
