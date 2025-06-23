@@ -3,7 +3,7 @@ use std::fs;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
-use tracing::info;
+use tracing::{debug, info};
 
 #[derive(Debug, Clone)]
 pub struct NamespaceStats {
@@ -118,7 +118,7 @@ impl OutputManager {
         let timestamp_str = self.timestamp.format("%Y-%m-%d-%H-%M-%S");
         let output_dir = format!("{}/ketchup-{}", self.base_dir, timestamp_str);
 
-        info!("Creating output directory: {}", output_dir);
+        debug!("Creating output directory: {}", output_dir);
         fs::create_dir_all(&output_dir).context("Failed to create output directory")?;
 
         Ok(output_dir)
@@ -178,8 +178,8 @@ impl OutputManager {
             }
         }
 
-        info!(
-            "Saved {} {} to {}",
+        debug!(
+            "💾 Saved {} {} to {}",
             saved_count, resource_type, resource_dir
         );
         Ok(saved_count)
@@ -361,23 +361,23 @@ impl OutputManager {
             }
         }
 
-        // Build the summary
+        // Build the summary with emojis in section names
         let summary = serde_json::json!({
-            "collection_info": {
+            "📋 collection_info": {
                 "timestamp": self.timestamp.to_rfc3339(),
                 "tool": "ketchup",
                 "version": env!("CARGO_PKG_VERSION")
             },
-            "cluster_overview": {
+            "📊 cluster_overview": {
                 "total_resources": grand_total,
                 "namespaces": active_namespaces.len(),
                 "cluster_resources": total_cluster_resources,
                 "namespaced_resources": total_namespaced_resources
             },
-            "cluster_resources": cluster_resource_map,
-            "namespaces": namespace_details,
-            "resource_highlights": resource_highlights,
-            "output_structure": {
+            "☸️ cluster_resources": cluster_resource_map,
+            "🏢 namespaces": namespace_details,
+            "🎯 resource_highlights": resource_highlights,
+            "📁 output_structure": {
                 "total_files": grand_total,
                 "formats": ["yaml"],
                 "compression": "gzip",
@@ -389,10 +389,28 @@ impl OutputManager {
         });
 
         let filename = format!("{}/collection-summary.yaml", output_dir);
-        info!("Creating concise collection summary: {}", filename);
+        debug!("Creating concise collection summary: {}", filename);
 
-        let summary_content =
+        // Create YAML with custom header and spacing
+        let mut summary_content = String::new();
+        summary_content.push_str("# 🍅 KETCHUP CLUSTER COLLECTION SUMMARY\n");
+        summary_content.push_str(&format!("# Generated: {}\n", self.timestamp.to_rfc3339()));
+        summary_content.push_str("# =======================================\n\n");
+
+        let yaml_content =
             serde_yaml::to_string(&summary).context("Failed to serialize summary to YAML")?;
+
+        // Add spacing between sections by replacing emoji section headers
+        let spaced_yaml = yaml_content
+            .replace("📋 collection_info:", "\n📋 collection_info:")
+            .replace("📊 cluster_overview:", "\n📊 cluster_overview:")
+            .replace("☸️ cluster_resources:", "\n☸️ cluster_resources:")
+            .replace("🏢 namespaces:", "\n🏢 namespaces:")
+            .replace("🎯 resource_highlights:", "\n🎯 resource_highlights:")
+            .replace("📁 output_structure:", "\n📁 output_structure:");
+
+        summary_content.push_str(&spaced_yaml);
+
         fs::write(&filename, summary_content).context("Failed to write YAML summary file")?;
 
         Ok(())
@@ -575,7 +593,7 @@ impl OutputManager {
     /// Create compressed archive of the output directory
     pub fn create_archive(&self, output_dir: &str) -> Result<String> {
         let archive_name = format!("{}.tar.gz", output_dir);
-        info!("Creating compressed archive: {}", archive_name);
+        debug!("Creating compressed archive: {}", archive_name);
 
         let tar_gz =
             std::fs::File::create(&archive_name).context("Failed to create archive file")?;
@@ -585,7 +603,7 @@ impl OutputManager {
         tar.append_dir_all(".", output_dir)
             .context("Failed to add directory to archive")?;
         tar.finish().context("Failed to finalize archive")?;
-        info!("Archive created successfully: {}", archive_name);
+        debug!("Archive created successfully: {}", archive_name);
 
         Ok(archive_name)
     }

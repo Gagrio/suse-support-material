@@ -14,7 +14,7 @@ use k8s_openapi::api::storage::v1::StorageClass;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{Api, Client, Config};
 use serde_json::Value;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 pub struct KubeClient {
     client: Client,
@@ -23,7 +23,7 @@ pub struct KubeClient {
 impl KubeClient {
     /// Create a new Kubernetes client using the specified kubeconfig file
     pub async fn new_client(kubeconfig_path: &str) -> Result<Self> {
-        info!("Loading kubeconfig from: {}", kubeconfig_path);
+        debug!("Loading kubeconfig from: {}", kubeconfig_path);
 
         // Set the KUBECONFIG environment variable (safe in our single-threaded context)
         unsafe {
@@ -34,7 +34,7 @@ impl KubeClient {
 
         let client = Client::try_from(config).context("Failed to create Kubernetes client")?;
 
-        info!("Successfully connected to Kubernetes cluster");
+        debug!("Successfully connected to Kubernetes cluster");
         Ok(KubeClient { client })
     }
 
@@ -54,7 +54,7 @@ impl KubeClient {
             .filter_map(|ns| ns.metadata.name.clone())
             .collect();
 
-        info!("Found {} namespaces: {:?}", names.len(), names);
+        debug!("Found {} namespaces: {:?}", names.len(), names);
         Ok(names)
     }
 
@@ -93,7 +93,7 @@ impl KubeClient {
         let mut all_resources = Vec::new();
 
         for namespace in namespaces {
-            info!("Collecting {} from namespace: {}", resource_name, namespace);
+            debug!("Collecting {} from namespace: {}", resource_name, namespace);
             let api: Api<T> = Api::namespaced(self.client.clone(), namespace);
 
             match api.list(&Default::default()).await {
@@ -104,7 +104,7 @@ impl KubeClient {
                             all_resources.push(json);
                         }
                     }
-                    info!(
+                    debug!(
                         "Found {} {} in namespace {}",
                         resource_count, resource_name, namespace
                     );
@@ -264,7 +264,7 @@ impl KubeClient {
         T: serde::Serialize + serde::de::DeserializeOwned,
         T: Clone + std::fmt::Debug,
     {
-        info!("Collecting cluster-scoped {}...", resource_name);
+        debug!("Collecting cluster-scoped {}...", resource_name);
         let api: Api<T> = Api::all(self.client.clone());
 
         match api.list(&Default::default()).await {
@@ -275,7 +275,7 @@ impl KubeClient {
                     .into_iter()
                     .filter_map(|item| serde_json::to_value(&item).ok())
                     .collect();
-                info!("Found {} cluster-scoped {}", resource_count, resource_name);
+                debug!("Found {} cluster-scoped {}", resource_count, resource_name);
                 Ok(resources)
             }
             Err(e) => {

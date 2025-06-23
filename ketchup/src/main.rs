@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use serde_json::Value;
-use tracing::info;
+use tracing::{debug, info};
 
 use output::{NamespaceStats, OutputManager};
 
@@ -33,9 +33,13 @@ struct Args {
     #[arg(short = 'c', long, default_value = "compressed", value_parser = ["compressed", "uncompressed", "both"])]
     compression: String,
 
-    /// Verbose logging
+    /// Verbose logging (progress and summaries)
     #[arg(short, long)]
     verbose: bool,
+
+    /// Debug logging (includes HTTP requests and detailed traces)
+    #[arg(short, long)]
+    debug: bool,
 }
 
 async fn collect_namespaced_resources(
@@ -44,53 +48,59 @@ async fn collect_namespaced_resources(
 ) -> Result<std::collections::HashMap<String, Vec<Value>>> {
     use std::collections::HashMap;
 
-    info!("Starting namespaced resource collection...");
+    info!("🚀 Starting namespaced resource collection...");
 
     let mut resources = HashMap::new();
 
     // Core resources
     let pods = kube_client.collect_pods(namespaces).await?;
-    info!("Successfully collected {} pods total", pods.len());
+    info!("✅ Successfully collected {} pods total", pods.len());
     resources.insert("pods".to_string(), pods);
 
     let services = kube_client.collect_services(namespaces).await?;
-    info!("Successfully collected {} services total", services.len());
+    info!(
+        "🌐 Successfully collected {} services total",
+        services.len()
+    );
     resources.insert("services".to_string(), services);
 
     let deployments = kube_client.collect_deployments(namespaces).await?;
     info!(
-        "Successfully collected {} deployments total",
+        "🚢 Successfully collected {} deployments total",
         deployments.len()
     );
     resources.insert("deployments".to_string(), deployments);
 
     let configmaps = kube_client.collect_configmaps(namespaces).await?;
     info!(
-        "Successfully collected {} configmaps total",
+        "⚙️ Successfully collected {} configmaps total",
         configmaps.len()
     );
     resources.insert("configmaps".to_string(), configmaps);
 
     let secrets = kube_client.collect_secrets(namespaces).await?;
-    info!("Successfully collected {} secrets total", secrets.len());
+    info!("🔐 Successfully collected {} secrets total", secrets.len());
     resources.insert("secrets".to_string(), secrets);
 
     let ingresses = kube_client.collect_ingresses(namespaces).await?;
-    info!("Successfully collected {} ingresses total", ingresses.len());
+    info!(
+        "🌍 Successfully collected {} ingresses total",
+        ingresses.len()
+    );
     resources.insert("ingresses".to_string(), ingresses);
 
     let pvcs = kube_client
         .collect_persistentvolumeclaims(namespaces)
         .await?;
     info!(
-        "Successfully collected {} persistentvolumeclaims total",
+        "💾 Successfully collected {} persistentvolumeclaims total",
         pvcs.len()
     );
     resources.insert("persistentvolumeclaims".to_string(), pvcs);
 
     let networkpolicies = kube_client.collect_networkpolicies(namespaces).await?;
     info!(
-        "Successfully collected {} networkpolicies total",
+        "🛡️ Successfully collected {} networkpolicies total",
         networkpolicies.len()
     );
     resources.insert("networkpolicies".to_string(), networkpolicies);
@@ -98,48 +108,51 @@ async fn collect_namespaced_resources(
     // Workload controllers
     let replicasets = kube_client.collect_replicasets(namespaces).await?;
     info!(
-        "Successfully collected {} replicasets total",
+        "🔄 Successfully collected {} replicasets total",
         replicasets.len()
     );
     resources.insert("replicasets".to_string(), replicasets);
 
     let daemonsets = kube_client.collect_daemonsets(namespaces).await?;
     info!(
-        "Successfully collected {} daemonsets total",
+        "👹 Successfully collected {} daemonsets total",
         daemonsets.len()
     );
     resources.insert("daemonsets".to_string(), daemonsets);
 
     let statefulsets = kube_client.collect_statefulsets(namespaces).await?;
     info!(
-        "Successfully collected {} statefulsets total",
+        "📊 Successfully collected {} statefulsets total",
         statefulsets.len()
     );
     resources.insert("statefulsets".to_string(), statefulsets);
 
     let jobs = kube_client.collect_jobs(namespaces).await?;
-    info!("Successfully collected {} jobs total", jobs.len());
+    info!("⚡ Successfully collected {} jobs total", jobs.len());
     resources.insert("jobs".to_string(), jobs);
 
     let cronjobs = kube_client.collect_cronjobs(namespaces).await?;
-    info!("Successfully collected {} cronjobs total", cronjobs.len());
+    info!(
+        "⏰ Successfully collected {} cronjobs total",
+        cronjobs.len()
+    );
     resources.insert("cronjobs".to_string(), cronjobs);
 
     // RBAC resources
     let serviceaccounts = kube_client.collect_serviceaccounts(namespaces).await?;
     info!(
-        "Successfully collected {} serviceaccounts total",
+        "👤 Successfully collected {} serviceaccounts total",
         serviceaccounts.len()
     );
     resources.insert("serviceaccounts".to_string(), serviceaccounts);
 
     let roles = kube_client.collect_roles(namespaces).await?;
-    info!("Successfully collected {} roles total", roles.len());
+    info!("🎭 Successfully collected {} roles total", roles.len());
     resources.insert("roles".to_string(), roles);
 
     let rolebindings = kube_client.collect_rolebindings(namespaces).await?;
     info!(
-        "Successfully collected {} rolebindings total",
+        "🔗 Successfully collected {} rolebindings total",
         rolebindings.len()
     );
     resources.insert("rolebindings".to_string(), rolebindings);
@@ -147,14 +160,14 @@ async fn collect_namespaced_resources(
     // Resource management
     let resourcequotas = kube_client.collect_resourcequotas(namespaces).await?;
     info!(
-        "Successfully collected {} resourcequotas total",
+        "📏 Successfully collected {} resourcequotas total",
         resourcequotas.len()
     );
     resources.insert("resourcequotas".to_string(), resourcequotas);
 
     let limitranges = kube_client.collect_limitranges(namespaces).await?;
     info!(
-        "Successfully collected {} limitranges total",
+        "⚖️ Successfully collected {} limitranges total",
         limitranges.len()
     );
     resources.insert("limitranges".to_string(), limitranges);
@@ -163,7 +176,7 @@ async fn collect_namespaced_resources(
         .collect_horizontalpodautoscalers(namespaces)
         .await?;
     info!(
-        "Successfully collected {} horizontalpodautoscalers total",
+        "📈 Successfully collected {} horizontalpodautoscalers total",
         horizontalpodautoscalers.len()
     );
     resources.insert(
@@ -173,19 +186,22 @@ async fn collect_namespaced_resources(
 
     let poddisruptionbudgets = kube_client.collect_poddisruptionbudgets(namespaces).await?;
     info!(
-        "Successfully collected {} poddisruptionbudgets total",
+        "🛡️ Successfully collected {} poddisruptionbudgets total",
         poddisruptionbudgets.len()
     );
     resources.insert("poddisruptionbudgets".to_string(), poddisruptionbudgets);
 
     // Network resources
     let endpoints = kube_client.collect_endpoints(namespaces).await?;
-    info!("Successfully collected {} endpoints total", endpoints.len());
+    info!(
+        "🔌 Successfully collected {} endpoints total",
+        endpoints.len()
+    );
     resources.insert("endpoints".to_string(), endpoints);
 
     let endpointslices = kube_client.collect_endpointslices(namespaces).await?;
     info!(
-        "Successfully collected {} endpointslices total",
+        "🍰 Successfully collected {} endpointslices total",
         endpointslices.len()
     );
     resources.insert("endpointslices".to_string(), endpointslices);
@@ -198,46 +214,46 @@ async fn collect_cluster_resources(
 ) -> Result<std::collections::HashMap<String, Vec<Value>>> {
     use std::collections::HashMap;
 
-    info!("Starting cluster-scoped resource collection...");
+    info!("☸️ Starting cluster-scoped resource collection...");
 
     let mut resources = HashMap::new();
 
     // Cluster-scoped resources
     let clusterroles = kube_client.collect_clusterroles().await?;
     info!(
-        "Successfully collected {} clusterroles total",
+        "🎭 Successfully collected {} clusterroles total",
         clusterroles.len()
     );
     resources.insert("clusterroles".to_string(), clusterroles);
 
     let clusterrolebindings = kube_client.collect_clusterrolebindings().await?;
     info!(
-        "Successfully collected {} clusterrolebindings total",
+        "🔗 Successfully collected {} clusterrolebindings total",
         clusterrolebindings.len()
     );
     resources.insert("clusterrolebindings".to_string(), clusterrolebindings);
 
     let nodes = kube_client.collect_nodes().await?;
-    info!("Successfully collected {} nodes total", nodes.len());
+    info!("🖥️ Successfully collected {} nodes total", nodes.len());
     resources.insert("nodes".to_string(), nodes);
 
     let persistentvolumes = kube_client.collect_persistentvolumes().await?;
     info!(
-        "Successfully collected {} persistentvolumes total",
+        "💽 Successfully collected {} persistentvolumes total",
         persistentvolumes.len()
     );
     resources.insert("persistentvolumes".to_string(), persistentvolumes);
 
     let storageclasses = kube_client.collect_storageclasses().await?;
     info!(
-        "Successfully collected {} storageclasses total",
+        "📦 Successfully collected {} storageclasses total",
         storageclasses.len()
     );
     resources.insert("storageclasses".to_string(), storageclasses);
 
     let customresourcedefinitions = kube_client.collect_customresourcedefinitions().await?;
     info!(
-        "Successfully collected {} customresourcedefinitions total",
+        "🎯 Successfully collected {} customresourcedefinitions total",
         customresourcedefinitions.len()
     );
     resources.insert(
@@ -253,10 +269,10 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Initialize logging
-    init_logging(args.verbose);
+    init_logging(args.verbose, args.debug);
 
-    info!("Starting Ketchup - Kubernetes Config Collector");
-    info!("Using kubeconfig: {}", args.kubeconfig);
+    info!("🍅 Starting Ketchup - Kubernetes Config Collector");
+    info!("📁 Using kubeconfig: {}", args.kubeconfig);
 
     // Connect to Kubernetes using specified kubeconfig
     let kube_client = k8s::KubeClient::new_client(&args.kubeconfig).await?;
@@ -265,13 +281,13 @@ async fn main() -> Result<()> {
     let requested_namespaces = if let Some(ns_str) = &args.namespaces {
         ns_str.split(',').map(|s| s.trim().to_string()).collect()
     } else {
-        info!("No namespaces specified, collecting from ALL namespaces");
+        debug!("🌍 No namespaces specified, collecting from ALL namespaces");
         kube_client.list_namespaces().await?
     };
 
     let verified_namespaces = kube_client.verify_namespaces(&requested_namespaces).await?;
-    info!("Will collect from namespaces: {:?}", verified_namespaces);
-    info!("Output directory: {}", args.output);
+    debug!("✅ Will collect from namespaces: {:?}", verified_namespaces);
+    debug!("📂 Output directory: {}", args.output);
 
     // Collect resources using separate functions
     let namespaced_resources =
@@ -279,8 +295,8 @@ async fn main() -> Result<()> {
     let cluster_resources = collect_cluster_resources(&kube_client).await?;
 
     // Create output manager and save files
-    info!("Setting up file output...");
-    info!(
+    info!("💾 Setting up file output...");
+    debug!(
         "Output format: {}, Compression: {}",
         args.format, args.compression
     );
@@ -401,19 +417,21 @@ async fn main() -> Result<()> {
 
     // Handle compression based on user preference
     if let Some(archive_path) = output_manager.handle_compression(&output_dir, &args.compression)? {
-        info!("Archive created: {}", archive_path);
+        debug!("📦 Archive created: {}", archive_path);
     }
 
-    info!("Files saved to: {}", output_dir);
-    info!("Collection completed successfully");
+    info!("💾 Files saved to: {}", output_dir);
+    info!("🎉 Collection completed successfully");
     Ok(())
 }
 
-fn init_logging(verbose: bool) {
-    let level = if verbose {
+fn init_logging(verbose: bool, debug: bool) {
+    let level = if debug {
         tracing::Level::DEBUG
-    } else {
+    } else if verbose {
         tracing::Level::INFO
+    } else {
+        tracing::Level::INFO // Default mode: show main progress with emojis
     };
 
     tracing_subscriber::fmt().with_max_level(level).init();
