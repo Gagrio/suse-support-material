@@ -10,7 +10,11 @@ mod output;
 
 #[derive(Parser, Debug)]
 #[command(name = "ketchup")]
-#[command(about = "Collect Kubernetes cluster configurations")]
+#[command(about = "Collect Kubernetes cluster configurations for recreation")]
+#[command(
+    long_about = "Collects all Kubernetes resources needed to recreate a cluster setup.
+Custom resource collection may show API errors in resource-constrained clusters - these can be safely ignored as the tool will continue successfully."
+)]
 #[command(version)]
 struct Args {
     /// Path to kubeconfig file (required)
@@ -33,6 +37,10 @@ struct Args {
     #[arg(short = 'c', long, default_value = "compressed", value_parser = ["compressed", "uncompressed", "both"])]
     compression: String,
 
+    /// Include custom resource instances (may show API errors that can be safely ignored)
+    #[arg(short = 'C', long, default_value = "false")]
+    include_custom_resources: bool,
+
     /// Verbose logging (progress and summaries)
     #[arg(short, long)]
     verbose: bool,
@@ -45,6 +53,7 @@ struct Args {
 async fn collect_namespaced_resources(
     kube_client: &k8s::KubeClient,
     namespaces: &[String],
+    include_custom_resources: bool,
 ) -> Result<std::collections::HashMap<String, Vec<Value>>> {
     use std::collections::HashMap;
 
@@ -206,6 +215,34 @@ async fn collect_namespaced_resources(
     );
     resources.insert("endpointslices".to_string(), endpointslices);
 
+    // Custom resources (with graceful error handling)
+    if include_custom_resources {
+        warn!("🎯 Collecting custom resource instances (API errors can be safely ignored)...");
+        match kube_client.collect_all_custom_resources(namespaces).await {
+            Ok(custom_resources) => {
+                warn!(
+                    "🎯 Successfully collected {} custom resource types",
+                    custom_resources.len()
+                );
+                // Add each custom resource type to the resources map
+                for (cr_type, cr_instances) in custom_resources {
+                    resources.insert(cr_type, cr_instances);
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "⚠️ Custom resource collection encountered API errors: {}",
+                    e
+                );
+                warn!(
+                    "🎯 Continuing with cluster recreation files (CRDs available for custom resource types)"
+                );
+            }
+        }
+    } else {
+        warn!("🎯 Skipping custom resource instances (--no-include-custom-resources specified)");
+    }
+
     Ok(resources)
 }
 
@@ -290,8 +327,12 @@ async fn main() -> Result<()> {
     debug!("📂 Output directory: {}", args.output);
 
     // Collect resources using separate functions
-    let namespaced_resources =
-        collect_namespaced_resources(&kube_client, &verified_namespaces).await?;
+    let namespaced_resources = collect_namespaced_resources(
+        &kube_client,
+        &verified_namespaces,
+        args.include_custom_resources,
+    )
+    .await?;
     let cluster_resources = collect_cluster_resources(&kube_client).await?;
 
     // Create output manager and save files
@@ -389,6 +430,13 @@ async fn main() -> Result<()> {
                 // Network resources
                 "endpoints" => stats.endpoints = saved_count,
                 "endpointslices" => stats.endpointslices = saved_count,
+                // Custom resources - these don't get counted in namespace stats (they get their own category)
+                _ if resource_type.contains('.') => {
+                    debug!(
+                        "Saved {} instances of custom resource type: {}",
+                        saved_count, resource_type
+                    );
+                }
                 _ => {} // Ignore unknown resource types
             }
         }
@@ -429,9 +477,9 @@ fn init_logging(verbose: bool, debug: bool) {
     let level = if debug {
         tracing::Level::DEBUG
     } else if verbose {
-        tracing::Level::INFO // Verbose: show everything at INFO level
+        tracing::Level::INFO
     } else {
-        tracing::Level::WARN // Default: show only main messages (we'll use warn! for main)
+        tracing::Level::WARN
     };
 
     tracing_subscriber::fmt().with_max_level(level).init();

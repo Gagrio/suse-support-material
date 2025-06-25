@@ -16,8 +16,8 @@ serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }
 
 # Kubernetes client
-kube = { version = "0.87", features = ["client", "config", "derive"] }
-k8s-openapi = { version = "0.20", features = ["v1_28"] }
+kube = { version = "1.1", features = ["client", "config", "derive"] }
+k8s-openapi = { version = "0.25", features = ["v1_30"] }
 
 # Error handling
 anyhow = "1.0"

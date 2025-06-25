@@ -13,8 +13,18 @@ use k8s_openapi::api::rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBind
 use k8s_openapi::api::storage::v1::StorageClass;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{Api, Client, Config};
+use kube::{api::DynamicObject, discovery::Discovery};
 use serde_json::Value;
+use std::collections::HashMap;
 use tracing::{debug, warn};
+
+#[derive(Debug, Clone)]
+pub struct CustomResourceInfo {
+    pub group: String,
+    pub version: String,
+    pub plural: String,
+    pub namespaced: bool,
+}
 
 pub struct KubeClient {
     client: Client,
@@ -318,5 +328,431 @@ impl KubeClient {
     pub async fn collect_customresourcedefinitions(&self) -> Result<Vec<Value>> {
         self.collect_cluster_resources::<CustomResourceDefinition>("customresourcedefinitions")
             .await
+    }
+
+    /// Parse collected CRDs to extract custom resource information
+    pub fn parse_crd_info(&self, crd: &Value) -> Result<Option<CustomResourceInfo>> {
+        let metadata = crd.get("metadata").context("Missing metadata")?;
+        let spec = crd.get("spec").context("Missing spec")?;
+
+        let _name = metadata
+            .get("name")
+            .and_then(|n| n.as_str())
+            .context("Missing CRD name")?;
+
+        let group = spec.get("group").and_then(|g| g.as_str()).unwrap_or("");
+
+        let names = spec.get("names").context("Missing names section")?;
+        let plural = names
+            .get("plural")
+            .and_then(|p| p.as_str())
+            .context("Missing plural name")?;
+
+        let scope = spec
+            .get("scope")
+            .and_then(|s| s.as_str())
+            .unwrap_or("Namespaced");
+        let namespaced = scope == "Namespaced";
+
+        // Get the first served version
+        let versions = spec
+            .get("versions")
+            .and_then(|v| v.as_array())
+            .context("Missing versions")?;
+
+        for version in versions {
+            if let (Some(version_name), Some(served)) = (
+                version.get("name").and_then(|n| n.as_str()),
+                version.get("served").and_then(|s| s.as_bool()),
+            ) {
+                if served {
+                    return Ok(Some(CustomResourceInfo {
+                        group: group.to_string(),
+                        version: version_name.to_string(),
+                        plural: plural.to_string(),
+                        namespaced,
+                    }));
+                }
+            }
+        }
+
+        warn!("No served version found for CRD: {}", _name);
+        Ok(None)
+    }
+
+    /// Collect all custom resource instances using hybrid approach
+    pub async fn collect_all_custom_resources(
+        &self,
+        namespaces: &[String],
+    ) -> Result<HashMap<String, Vec<Value>>> {
+        debug!("Starting hybrid custom resource discovery and collection...");
+
+        // Get all CRDs we've already collected
+        let crds = self.collect_customresourcedefinitions().await?;
+        debug!("Found {} CRDs to process", crds.len());
+
+        let mut all_custom_resources = HashMap::new();
+
+        for crd in crds {
+            if let Ok(Some(cr_info)) = self.parse_crd_info(&crd) {
+                debug!(
+                    "Processing custom resource: {}.{}",
+                    cr_info.plural, cr_info.group
+                );
+
+                // Try discovery-based collection first, then CRD-based fallback
+                match self
+                    .collect_custom_resource_instances_hybrid(&cr_info, namespaces)
+                    .await
+                {
+                    Ok(instances) => {
+                        if !instances.is_empty() {
+                            let resource_key = if cr_info.group.is_empty() {
+                                cr_info.plural.clone()
+                            } else {
+                                format!("{}.{}", cr_info.plural, cr_info.group)
+                            };
+
+                            debug!(
+                                "Collected {} instances of {}",
+                                instances.len(),
+                                resource_key
+                            );
+                            all_custom_resources.insert(resource_key, instances);
+                        }
+                    }
+                    Err(e) => {
+                        debug!(
+                            "Failed to collect instances of {}.{}: {}",
+                            cr_info.plural, cr_info.group, e
+                        );
+                    }
+                }
+            }
+        }
+
+        debug!(
+            "Collected {} different custom resource types",
+            all_custom_resources.len()
+        );
+        Ok(all_custom_resources)
+    }
+
+    /// Hybrid approach: Try discovery first, fallback to direct CRD-based collection
+    async fn collect_custom_resource_instances_hybrid(
+        &self,
+        cr_info: &CustomResourceInfo,
+        namespaces: &[String],
+    ) -> Result<Vec<Value>> {
+        // Phase 1: Try discovery-based collection (fast when it works)
+        match self
+            .collect_custom_resource_instances_discovery(cr_info, namespaces)
+            .await
+        {
+            Ok(instances) => {
+                debug!(
+                    "Discovery-based collection succeeded for {}",
+                    cr_info.plural
+                );
+                return Ok(instances);
+            }
+            Err(e) => {
+                debug!(
+                    "Discovery-based collection failed for {}: {}",
+                    cr_info.plural, e
+                );
+                debug!("Falling back to CRD-based collection...");
+            }
+        }
+
+        // Phase 2: Fallback to CRD-based collection (more reliable)
+        self.collect_custom_resource_instances_crd_based(cr_info, namespaces)
+            .await
+    }
+
+    /// Discovery-based collection (original method)
+    async fn collect_custom_resource_instances_discovery(
+        &self,
+        cr_info: &CustomResourceInfo,
+        namespaces: &[String],
+    ) -> Result<Vec<Value>> {
+        let mut all_instances = Vec::new();
+
+        // Use discovery to get the API resource info
+        let discovery = Discovery::new(self.client.clone()).run().await?;
+
+        if cr_info.namespaced {
+            // Collect from each namespace
+            for namespace in namespaces {
+                match self
+                    .collect_namespaced_custom_resource_discovery(
+                        &discovery,
+                        &cr_info.plural,
+                        namespace,
+                    )
+                    .await
+                {
+                    Ok(mut instances) => {
+                        all_instances.append(&mut instances);
+                    }
+                    Err(e) => {
+                        debug!(
+                            "No {} found in namespace {}: {}",
+                            cr_info.plural, namespace, e
+                        );
+                    }
+                }
+            }
+        } else {
+            // Collect cluster-scoped
+            match self
+                .collect_cluster_custom_resource_discovery(&discovery, &cr_info.plural)
+                .await
+            {
+                Ok(mut instances) => {
+                    all_instances.append(&mut instances);
+                }
+                Err(e) => {
+                    debug!("No cluster-scoped {} found: {}", cr_info.plural, e);
+                }
+            }
+        }
+
+        Ok(all_instances)
+    }
+
+    /// CRD-based collection (fallback method) with graceful error handling
+    async fn collect_custom_resource_instances_crd_based(
+        &self,
+        cr_info: &CustomResourceInfo,
+        namespaces: &[String],
+    ) -> Result<Vec<Value>> {
+        let api_version = if cr_info.group.is_empty() {
+            cr_info.version.clone()
+        } else {
+            format!("{}/{}", cr_info.group, cr_info.version)
+        };
+
+        debug!(
+            "Using CRD-based collection for {} ({})",
+            cr_info.plural, api_version
+        );
+
+        let mut all_instances = Vec::new();
+
+        if cr_info.namespaced {
+            // Collect from each namespace with individual error handling
+            for namespace in namespaces {
+                match self
+                    .collect_namespaced_custom_resource_crd_based(
+                        &api_version,
+                        &cr_info.plural,
+                        namespace,
+                    )
+                    .await
+                {
+                    Ok(mut instances) => {
+                        all_instances.append(&mut instances);
+                        if !instances.is_empty() {
+                            debug!(
+                                "✅ Collected {} {} from namespace {}",
+                                instances.len(),
+                                cr_info.plural,
+                                namespace
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        debug!(
+                            "⚠️ Could not collect {} from namespace {} (API unavailable): {}",
+                            cr_info.plural, namespace, e
+                        );
+                        // Continue with other namespaces
+                    }
+                }
+            }
+        } else {
+            // Collect cluster-scoped with error handling
+            match self
+                .collect_cluster_custom_resource_crd_based(&api_version, &cr_info.plural)
+                .await
+            {
+                Ok(mut instances) => {
+                    all_instances.append(&mut instances);
+                    if !instances.is_empty() {
+                        debug!(
+                            "✅ Collected {} cluster-scoped {}",
+                            instances.len(),
+                            cr_info.plural
+                        );
+                    }
+                }
+                Err(e) => {
+                    debug!(
+                        "⚠️ Could not collect cluster-scoped {} (API unavailable): {}",
+                        cr_info.plural, e
+                    );
+                    // Continue anyway
+                }
+            }
+        }
+
+        Ok(all_instances)
+    }
+
+    /// Collect namespaced custom resource instances using discovery
+    async fn collect_namespaced_custom_resource_discovery(
+        &self,
+        discovery: &Discovery,
+        plural: &str,
+        namespace: &str,
+    ) -> Result<Vec<Value>> {
+        debug!(
+            "Collecting namespaced {} from {} (discovery)",
+            plural, namespace
+        );
+
+        // Find the API resource
+        for group in discovery.groups() {
+            for (api_resource, capabilities) in group.recommended_resources() {
+                if api_resource.plural == plural
+                    && capabilities.scope == kube::discovery::Scope::Namespaced
+                {
+                    // Create dynamic API
+                    let api: kube::Api<DynamicObject> =
+                        kube::Api::namespaced_with(self.client.clone(), namespace, &api_resource);
+
+                    let objects = api.list(&Default::default()).await?;
+
+                    return Ok(objects
+                        .items
+                        .into_iter()
+                        .filter_map(|obj| serde_json::to_value(obj).ok())
+                        .collect());
+                }
+            }
+        }
+
+        Err(anyhow::anyhow!(
+            "API resource not found in discovery: {}",
+            plural
+        ))
+    }
+
+    /// Collect cluster-scoped custom resource instances using discovery
+    async fn collect_cluster_custom_resource_discovery(
+        &self,
+        discovery: &Discovery,
+        plural: &str,
+    ) -> Result<Vec<Value>> {
+        debug!("Collecting cluster-scoped {} (discovery)", plural);
+
+        // Find the API resource
+        for group in discovery.groups() {
+            for (api_resource, capabilities) in group.recommended_resources() {
+                if api_resource.plural == plural
+                    && capabilities.scope == kube::discovery::Scope::Cluster
+                {
+                    // Create dynamic API
+                    let api: kube::Api<DynamicObject> =
+                        kube::Api::all_with(self.client.clone(), &api_resource);
+
+                    let objects = api.list(&Default::default()).await?;
+
+                    return Ok(objects
+                        .items
+                        .into_iter()
+                        .filter_map(|obj| serde_json::to_value(obj).ok())
+                        .collect());
+                }
+            }
+        }
+
+        Err(anyhow::anyhow!(
+            "API resource not found in discovery: {}",
+            plural
+        ))
+    }
+
+    /// Collect namespaced custom resource instances using CRD info
+    async fn collect_namespaced_custom_resource_crd_based(
+        &self,
+        api_version: &str,
+        plural: &str,
+        namespace: &str,
+    ) -> Result<Vec<Value>> {
+        debug!(
+            "Collecting namespaced {} from {} (CRD-based: {})",
+            plural, namespace, api_version
+        );
+
+        // Parse the API version
+        let (group, version) = if api_version.contains('/') {
+            let parts: Vec<&str> = api_version.split('/').collect();
+            (parts[0], parts[1])
+        } else {
+            ("", api_version)
+        };
+
+        // Create API resource manually from CRD info
+        let api_resource = kube::discovery::ApiResource {
+            group: group.to_string(),
+            version: version.to_string(),
+            api_version: api_version.to_string(),
+            kind: "".to_string(), // We don't need kind for DynamicObject
+            plural: plural.to_string(),
+        };
+
+        // Create dynamic API
+        let api: kube::Api<DynamicObject> =
+            kube::Api::namespaced_with(self.client.clone(), namespace, &api_resource);
+
+        let objects = api.list(&Default::default()).await?;
+
+        Ok(objects
+            .items
+            .into_iter()
+            .filter_map(|obj| serde_json::to_value(obj).ok())
+            .collect())
+    }
+
+    /// Collect cluster-scoped custom resource instances using CRD info
+    async fn collect_cluster_custom_resource_crd_based(
+        &self,
+        api_version: &str,
+        plural: &str,
+    ) -> Result<Vec<Value>> {
+        debug!(
+            "Collecting cluster-scoped {} (CRD-based: {})",
+            plural, api_version
+        );
+
+        // Parse the API version
+        let (group, version) = if api_version.contains('/') {
+            let parts: Vec<&str> = api_version.split('/').collect();
+            (parts[0], parts[1])
+        } else {
+            ("", api_version)
+        };
+
+        // Create API resource manually from CRD info
+        let api_resource = kube::discovery::ApiResource {
+            group: group.to_string(),
+            version: version.to_string(),
+            api_version: api_version.to_string(),
+            kind: "".to_string(), // We don't need kind for DynamicObject
+            plural: plural.to_string(),
+        };
+
+        // Create dynamic API
+        let api: kube::Api<DynamicObject> = kube::Api::all_with(self.client.clone(), &api_resource);
+
+        let objects = api.list(&Default::default()).await?;
+
+        Ok(objects
+            .items
+            .into_iter()
+            .filter_map(|obj| serde_json::to_value(obj).ok())
+            .collect())
     }
 }
