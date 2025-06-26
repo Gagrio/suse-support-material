@@ -3,7 +3,7 @@ use std::fs;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone)]
 pub struct NamespaceStats {
@@ -60,6 +60,44 @@ impl NamespaceStats {
             + self.poddisruptionbudgets
             + self.endpoints
             + self.endpointslices
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SanitizationStats {
+    pub total_processed: usize,
+    pub total_sanitized: usize,
+    pub total_skipped: usize,
+    pub skipped_resources: Vec<String>,
+}
+
+impl SanitizationStats {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add(&mut self, other: &SanitizationStats) {
+        self.total_processed += other.total_processed;
+        self.total_sanitized += other.total_sanitized;
+        self.total_skipped += other.total_skipped;
+        self.skipped_resources
+            .extend(other.skipped_resources.clone());
+    }
+
+    pub fn record_sanitized(&mut self) {
+        self.total_processed += 1;
+        self.total_sanitized += 1;
+    }
+
+    pub fn record_skipped(&mut self, resource_identifier: String) {
+        self.total_processed += 1;
+        self.total_skipped += 1;
+        self.skipped_resources.push(resource_identifier);
+    }
+
+    pub fn record_raw(&mut self) {
+        self.total_processed += 1;
+        // Raw resources are neither sanitized nor skipped
     }
 }
 
@@ -124,7 +162,131 @@ impl OutputManager {
         Ok(output_dir)
     }
 
-    /// Generic method to save any resource type individually
+    /// Sanitize a Kubernetes resource for kubectl apply readiness
+    fn sanitize_resource_for_apply(&self, resource: &mut Value) -> Result<()> {
+        if let Some(obj) = resource.as_object_mut() {
+            // Remove status section entirely
+            obj.remove("status");
+
+            // Clean metadata of cluster-specific fields
+            if let Some(metadata) = obj.get_mut("metadata").and_then(|m| m.as_object_mut()) {
+                metadata.remove("uid");
+                metadata.remove("resourceVersion");
+                metadata.remove("creationTimestamp");
+                metadata.remove("generation");
+                metadata.remove("managedFields");
+                metadata.remove("selfLink");
+
+                // Clean problematic annotations
+                if let Some(annotations) = metadata
+                    .get_mut("annotations")
+                    .and_then(|a| a.as_object_mut())
+                {
+                    annotations.retain(|key, _| {
+                        !key.starts_with("kubectl.kubernetes.io/")
+                            && !key.starts_with("deployment.kubernetes.io/")
+                            && key != "control-plane.alpha.kubernetes.io/leader"
+                    });
+
+                    // Remove empty annotations object
+                    if annotations.is_empty() {
+                        metadata.remove("annotations");
+                    }
+                }
+
+                // Clean finalizers that might cause issues
+                if let Some(finalizers) = metadata
+                    .get_mut("finalizers")
+                    .and_then(|f| f.as_array_mut())
+                {
+                    finalizers.retain(|finalizer| {
+                        if let Some(finalizer_str) = finalizer.as_str() {
+                            // Keep custom finalizers but remove system ones that might cause issues
+                            !finalizer_str.starts_with("kubernetes.io/")
+                        } else {
+                            true
+                        }
+                    });
+
+                    // Remove empty finalizers array
+                    if finalizers.is_empty() {
+                        metadata.remove("finalizers");
+                    }
+                }
+            }
+
+            // Resource-specific sanitization
+            match obj.get("kind").and_then(|k| k.as_str()) {
+                Some("Node") => {
+                    // Nodes are infrastructure - remove most dynamic fields
+                    if let Some(spec) = obj.get_mut("spec").and_then(|s| s.as_object_mut()) {
+                        // Keep only essential node configuration
+                        spec.retain(|key, _| {
+                            matches!(key.as_str(), "podCIDR" | "podCIDRs" | "taints")
+                        });
+                    }
+                }
+                Some("Service") => {
+                    if let Some(spec) = obj.get_mut("spec").and_then(|s| s.as_object_mut()) {
+                        // Remove cluster-assigned fields
+                        spec.remove("clusterIP");
+                        spec.remove("clusterIPs");
+
+                        // Handle NodePort services
+                        if let Some(ports) = spec.get_mut("ports").and_then(|p| p.as_array_mut()) {
+                            for port in ports {
+                                if let Some(port_obj) = port.as_object_mut() {
+                                    // Remove auto-assigned node ports unless explicitly set
+                                    if let Some(node_port) = port_obj.get("nodePort") {
+                                        if node_port.as_u64().unwrap_or(0) >= 30000 {
+                                            port_obj.remove("nodePort");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Some("PersistentVolume") => {
+                    if let Some(spec) = obj.get_mut("spec").and_then(|s| s.as_object_mut()) {
+                        // Remove claim reference to make PV reusable
+                        spec.remove("claimRef");
+                    }
+                }
+                Some("PersistentVolumeClaim") => {
+                    if let Some(spec) = obj.get_mut("spec").and_then(|s| s.as_object_mut()) {
+                        // Remove volume name to allow dynamic provisioning
+                        spec.remove("volumeName");
+                    }
+                }
+                _ => {} // No special handling for other resource types
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get a human-readable resource identifier
+    fn get_resource_identifier(&self, resource: &Value, resource_type: &str) -> String {
+        let name = resource
+            .get("metadata")
+            .and_then(|m| m.get("name"))
+            .and_then(|n| n.as_str())
+            .unwrap_or("unknown");
+
+        let namespace = resource
+            .get("metadata")
+            .and_then(|m| m.get("namespace"))
+            .and_then(|ns| ns.as_str());
+
+        if let Some(ns) = namespace {
+            format!("{}/{} ({})", resource_type, name, ns)
+        } else {
+            format!("{}/{}", resource_type, name)
+        }
+    }
+
+    /// Generic method to save any resource type individually with optional sanitization
     pub fn save_resources_individually(
         &self,
         output_dir: &str,
@@ -132,33 +294,76 @@ impl OutputManager {
         resources: &[Value],
         resource_type: &str,
         format: &str,
-    ) -> Result<usize> {
+        sanitize: bool,
+    ) -> Result<(usize, SanitizationStats)> {
         // Skip empty resources - don't create directories for 0 resources
         if resources.is_empty() {
-            return Ok(0);
+            return Ok((0, SanitizationStats::new()));
         }
 
-        let resource_dir = format!("{}/{}/{}", output_dir, namespace, resource_type);
-        fs::create_dir_all(&resource_dir)
-            .with_context(|| format!("Failed to create namespace {} directory", resource_type))?;
+        // Determine if this is a custom resource (contains '.')
+        let is_custom_resource = resource_type.contains('.');
+
+        let resource_dir = if is_custom_resource {
+            format!(
+                "{}/{}/custom-resources/{}",
+                output_dir, namespace, resource_type
+            )
+        } else {
+            format!("{}/{}/{}", output_dir, namespace, resource_type)
+        };
+
+        fs::create_dir_all(&resource_dir).with_context(|| {
+            format!(
+                "Failed to create {} directory for {}",
+                resource_type, namespace
+            )
+        })?;
 
         let mut saved_count = 0;
+        let mut sanitization_stats = SanitizationStats::new();
+
         for resource in resources {
             if let Some(resource_name) = resource
                 .get("metadata")
                 .and_then(|m| m.get("name"))
                 .and_then(|n| n.as_str())
             {
+                // Prepare the resource (sanitize if requested)
+                let final_resource = if sanitize {
+                    let mut resource_copy = resource.clone();
+                    match self.sanitize_resource_for_apply(&mut resource_copy) {
+                        Ok(()) => {
+                            sanitization_stats.record_sanitized();
+                            resource_copy
+                        }
+                        Err(e) => {
+                            let resource_id = self.get_resource_identifier(resource, resource_type);
+                            warn!("⚠️  Skipping {} - sanitization failed: {}", resource_id, e);
+                            warn!(
+                                "💡 Consider using --raw flag to collect original resource, then manually sanitize for kubectl apply"
+                            );
+
+                            sanitization_stats.record_skipped(resource_id);
+                            continue; // Skip this resource
+                        }
+                    }
+                } else {
+                    sanitization_stats.record_raw();
+                    resource.clone()
+                };
+
+                // Save the resource in requested format(s)
                 match format {
                     "json" => {
                         let filename = format!("{}/{}.json", resource_dir, resource_name);
-                        let content = serde_json::to_string_pretty(resource)?;
+                        let content = serde_json::to_string_pretty(&final_resource)?;
                         fs::write(&filename, content)?;
                         saved_count += 1;
                     }
                     "yaml" => {
                         let filename = format!("{}/{}.yaml", resource_dir, resource_name);
-                        let content = serde_yaml::to_string(resource)?;
+                        let content = serde_yaml::to_string(&final_resource)?;
                         fs::write(&filename, content)?;
                         saved_count += 1;
                     }
@@ -166,8 +371,8 @@ impl OutputManager {
                         let json_file = format!("{}/{}.json", resource_dir, resource_name);
                         let yaml_file = format!("{}/{}.yaml", resource_dir, resource_name);
 
-                        let json_content = serde_json::to_string_pretty(resource)?;
-                        let yaml_content = serde_yaml::to_string(resource)?;
+                        let json_content = serde_json::to_string_pretty(&final_resource)?;
+                        let yaml_content = serde_yaml::to_string(&final_resource)?;
 
                         fs::write(&json_file, json_content)?;
                         fs::write(&yaml_file, yaml_content)?;
@@ -178,19 +383,36 @@ impl OutputManager {
             }
         }
 
-        info!(
-            "💾 Saved {} {} to {}",
-            saved_count, resource_type, resource_dir
-        );
-        Ok(saved_count)
+        if saved_count > 0 {
+            let sanitization_info = if sanitize {
+                format!(" (sanitized for kubectl apply)")
+            } else {
+                format!(" (raw)")
+            };
+
+            let location_info = if is_custom_resource {
+                format!(" to {}/custom-resources/", namespace)
+            } else {
+                format!(" to {}/", namespace)
+            };
+
+            info!(
+                "💾 Saved {} {}{} {}",
+                saved_count, resource_type, sanitization_info, location_info
+            );
+        }
+
+        Ok((saved_count, sanitization_stats))
     }
 
-    /// Create enhanced summary with concise, organized output (Option 1)
+    /// Create enhanced summary with sanitization information
     pub fn create_enhanced_summary(
         &self,
         output_dir: &str,
         namespace_stats: &[NamespaceStats],
         cluster_stats: &std::collections::HashMap<String, usize>,
+        sanitization_stats: &SanitizationStats,
+        raw_mode: bool,
     ) -> Result<()> {
         // Calculate totals for cluster overview
         let mut total_namespaced_resources = 0;
@@ -361,6 +583,48 @@ impl OutputManager {
             }
         }
 
+        // Build sanitization section for summary
+        let mut sanitization_section = serde_json::Map::new();
+        if raw_mode {
+            sanitization_section.insert("mode".to_string(), "raw".into());
+            sanitization_section.insert("kubectl_ready".to_string(), false.into());
+            sanitization_section.insert("note".to_string(), "Resources collected as-is from cluster. May require manual sanitization for kubectl apply.".into());
+        } else {
+            sanitization_section.insert("mode".to_string(), "sanitized".into());
+            sanitization_section.insert("kubectl_ready".to_string(), true.into());
+            sanitization_section.insert(
+                "total_processed".to_string(),
+                sanitization_stats.total_processed.into(),
+            );
+            sanitization_section.insert(
+                "successfully_sanitized".to_string(),
+                sanitization_stats.total_sanitized.into(),
+            );
+
+            if sanitization_stats.total_skipped > 0 {
+                sanitization_section.insert(
+                    "skipped_count".to_string(),
+                    sanitization_stats.total_skipped.into(),
+                );
+                sanitization_section.insert(
+                    "skipped_resources".to_string(),
+                    serde_json::Value::Array(
+                        sanitization_stats
+                            .skipped_resources
+                            .iter()
+                            .map(|s| serde_json::Value::String(s.clone()))
+                            .collect(),
+                    ),
+                );
+                sanitization_section.insert("note".to_string(), "Some resources were skipped due to sanitization issues. Use --raw to collect all resources.".into());
+            } else {
+                sanitization_section.insert(
+                    "note".to_string(),
+                    "All resources successfully sanitized for kubectl apply.".into(),
+                );
+            }
+        }
+
         // Build the summary with emojis in section names
         let summary = serde_json::json!({
             "📋 collection_info": {
@@ -374,6 +638,7 @@ impl OutputManager {
                 "cluster_resources": total_cluster_resources,
                 "namespaced_resources": total_namespaced_resources
             },
+            "✨ sanitization": sanitization_section,
             "☸️ cluster_resources": cluster_resource_map,
             "🏢 namespaces": namespace_details,
             "🎯 resource_highlights": resource_highlights,
@@ -395,6 +660,11 @@ impl OutputManager {
         let mut summary_content = String::new();
         summary_content.push_str("# 🍅 KETCHUP CLUSTER COLLECTION SUMMARY\n");
         summary_content.push_str(&format!("# Generated: {}\n", self.timestamp.to_rfc3339()));
+        if raw_mode {
+            summary_content.push_str("# Mode: RAW (unsanitized resources)\n");
+        } else {
+            summary_content.push_str("# Mode: SANITIZED (kubectl apply ready)\n");
+        }
         summary_content.push_str("# =======================================\n\n");
 
         let yaml_content =
@@ -404,6 +674,7 @@ impl OutputManager {
         let spaced_yaml = yaml_content
             .replace("📋 collection_info:", "\n📋 collection_info:")
             .replace("📊 cluster_overview:", "\n📊 cluster_overview:")
+            .replace("✨ sanitization:", "\n✨ sanitization:")
             .replace("☸️ cluster_resources:", "\n☸️ cluster_resources:")
             .replace("🏢 namespaces:", "\n🏢 namespaces:")
             .replace("🎯 resource_highlights:", "\n🎯 resource_highlights:")

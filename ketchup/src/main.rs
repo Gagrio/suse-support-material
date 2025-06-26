@@ -3,7 +3,7 @@ use clap::Parser;
 use serde_json::Value;
 use tracing::{debug, info, warn};
 
-use output::{NamespaceStats, OutputManager};
+use output::{NamespaceStats, OutputManager, SanitizationStats};
 
 mod k8s;
 mod output;
@@ -13,6 +13,7 @@ mod output;
 #[command(about = "Collect Kubernetes cluster configurations for recreation")]
 #[command(
     long_about = "Collects all Kubernetes resources needed to recreate a cluster setup.
+By default, resources are sanitized for kubectl apply readiness.
 Custom resource collection may show API errors in resource-constrained clusters - these can be safely ignored as the tool will continue successfully."
 )]
 #[command(version)]
@@ -37,9 +38,13 @@ struct Args {
     #[arg(short = 'c', long, default_value = "compressed", value_parser = ["compressed", "uncompressed", "both"])]
     compression: String,
 
-    /// Include custom resource instances (may show API errors that can be safely ignored)
+    /// Include CRDs and custom resource instances (may show API errors that can be safely ignored)
     #[arg(short = 'C', long, default_value = "false")]
     include_custom_resources: bool,
+
+    /// Collect raw unsanitized resources (default: sanitize for kubectl apply readiness)
+    #[arg(short = 'r', long, default_value = "false")]
+    raw: bool,
 
     /// Verbose logging (progress and summaries)
     #[arg(short, long)]
@@ -218,12 +223,24 @@ async fn collect_namespaced_resources(
     // Custom resources (with graceful error handling)
     if include_custom_resources {
         warn!("🎯 Collecting custom resource instances (API errors can be safely ignored)...");
+        debug!("Custom resource collection enabled via -C flag");
         match kube_client.collect_all_custom_resources(namespaces).await {
             Ok(custom_resources) => {
-                warn!(
-                    "🎯 Successfully collected {} custom resource types",
-                    custom_resources.len()
-                );
+                if custom_resources.is_empty() {
+                    warn!("🎯 No custom resource instances found in specified namespaces");
+                } else {
+                    warn!(
+                        "🎯 Successfully collected {} custom resource types",
+                        custom_resources.len()
+                    );
+                    for (cr_type, cr_instances) in custom_resources.iter() {
+                        debug!(
+                            "Found {} instances of custom resource: {}",
+                            cr_instances.len(),
+                            cr_type
+                        );
+                    }
+                }
                 // Add each custom resource type to the resources map
                 for (cr_type, cr_instances) in custom_resources {
                     resources.insert(cr_type, cr_instances);
@@ -240,7 +257,10 @@ async fn collect_namespaced_resources(
             }
         }
     } else {
-        warn!("🎯 Skipping custom resource instances (--no-include-custom-resources specified)");
+        warn!(
+            "🎯 Skipping custom resource instances (use -C flag to include CRDs and custom resource instances)"
+        );
+        debug!("Custom resource collection disabled - use -C flag to enable");
     }
 
     Ok(resources)
@@ -248,6 +268,7 @@ async fn collect_namespaced_resources(
 
 async fn collect_cluster_resources(
     kube_client: &k8s::KubeClient,
+    include_custom_resources: bool,
 ) -> Result<std::collections::HashMap<String, Vec<Value>>> {
     use std::collections::HashMap;
 
@@ -288,15 +309,18 @@ async fn collect_cluster_resources(
     );
     resources.insert("storageclasses".to_string(), storageclasses);
 
-    let customresourcedefinitions = kube_client.collect_customresourcedefinitions().await?;
-    warn!(
-        "🎯 Successfully collected {} customresourcedefinitions total",
-        customresourcedefinitions.len()
-    );
-    resources.insert(
-        "customresourcedefinitions".to_string(),
-        customresourcedefinitions,
-    );
+    // Only collect CRDs if custom resources are requested
+    if include_custom_resources {
+        let customresourcedefinitions = kube_client.collect_customresourcedefinitions().await?;
+        warn!(
+            "🎯 Successfully collected {} customresourcedefinitions total",
+            customresourcedefinitions.len()
+        );
+        resources.insert(
+            "customresourcedefinitions".to_string(),
+            customresourcedefinitions,
+        );
+    }
 
     Ok(resources)
 }
@@ -310,6 +334,13 @@ async fn main() -> Result<()> {
 
     warn!("🍅 Starting Ketchup - Kubernetes Config Collector");
     warn!("📁 Using kubeconfig: {}", args.kubeconfig);
+
+    // Log the collection mode
+    if args.raw {
+        warn!("🔧 Raw mode: Collecting unsanitized resources as they exist in cluster");
+    } else {
+        warn!("✨ Default mode: Sanitizing resources for kubectl apply readiness");
+    }
 
     // Connect to Kubernetes using specified kubeconfig
     let kube_client = k8s::KubeClient::new_client(&args.kubeconfig).await?;
@@ -333,7 +364,8 @@ async fn main() -> Result<()> {
         args.include_custom_resources,
     )
     .await?;
-    let cluster_resources = collect_cluster_resources(&kube_client).await?;
+    let cluster_resources =
+        collect_cluster_resources(&kube_client, args.include_custom_resources).await?;
 
     // Create output manager and save files
     warn!("💾 Setting up file output...");
@@ -343,6 +375,9 @@ async fn main() -> Result<()> {
     );
     let output_manager = OutputManager::new_output_manager(args.output);
     let output_dir = output_manager.create_output_directory()?;
+
+    // Track sanitization statistics
+    let mut total_sanitization_stats = SanitizationStats::new();
 
     // Save all namespaced resources for each namespace
     let mut namespace_stats: Vec<NamespaceStats> = Vec::new();
@@ -394,13 +429,17 @@ async fn main() -> Result<()> {
                 .collect();
 
             // Save resources and update stats
-            let saved_count = output_manager.save_resources_individually(
+            let (saved_count, sanitization_stats) = output_manager.save_resources_individually(
                 &output_dir,
                 namespace,
                 &namespace_resources,
                 resource_type,
                 &args.format,
+                !args.raw, // sanitize = !raw
             )?;
+
+            // Accumulate sanitization stats
+            total_sanitization_stats.add(&sanitization_stats);
 
             // Update the appropriate field in stats
             match resource_type.as_str() {
@@ -449,19 +488,39 @@ async fn main() -> Result<()> {
 
     for (resource_type, cluster_resource_list) in &cluster_resources {
         // Save cluster resources to cluster-wide directory
-        let saved_count = output_manager.save_resources_individually(
+        let (saved_count, sanitization_stats) = output_manager.save_resources_individually(
             &output_dir,
             "cluster-wide", // Use "cluster-wide" as directory name
             cluster_resource_list,
             resource_type,
             &args.format,
+            !args.raw, // Sanitize all resources including CRDs
         )?;
 
+        // Accumulate sanitization stats
+        total_sanitization_stats.add(&sanitization_stats);
         cluster_stats.insert(resource_type.clone(), saved_count);
     }
 
+    // Show sanitization summary if any resources were skipped
+    if total_sanitization_stats.total_skipped > 0 {
+        warn!(
+            "⚠️ {} resources were skipped due to sanitization issues",
+            total_sanitization_stats.total_skipped
+        );
+        warn!(
+            "💡 Run with --raw flag to collect all resources, then manually clean problematic ones"
+        );
+    }
+
     // Create enhanced summary
-    output_manager.create_enhanced_summary(&output_dir, &namespace_stats, &cluster_stats)?;
+    output_manager.create_enhanced_summary(
+        &output_dir,
+        &namespace_stats,
+        &cluster_stats,
+        &total_sanitization_stats,
+        args.raw,
+    )?;
 
     // Handle compression based on user preference
     if let Some(archive_path) = output_manager.handle_compression(&output_dir, &args.compression)? {
