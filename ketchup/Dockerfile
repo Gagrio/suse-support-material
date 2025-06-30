@@ -4,7 +4,7 @@
 # =============================================================================
 
 # Build stage
-FROM registry.suse.com/bci/rust:1.81 as builder
+FROM registry.suse.com/bci/rust:latest as builder
 WORKDIR /app
 COPY . .
 RUN cargo build --release
