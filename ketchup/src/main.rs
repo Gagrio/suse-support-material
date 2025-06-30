@@ -11,7 +11,7 @@ mod suse_edge;
 
 #[derive(Parser, Debug)]
 #[command(name = "ketchup")]
-#[command(about = "Collect Kubernetes cluster configurations for recreation")]
+#[command(about = "Collect Kubernetes cluster configuration")]
 #[command(
     long_about = "Collects all Kubernetes resources needed to recreate a cluster setup.
 By default, resources are sanitized for kubectl apply readiness.
@@ -48,7 +48,7 @@ struct Args {
     raw: bool,
 
     /// Disable SUSE Edge component detection and analysis (enabled by default)
-    #[arg(long, default_value = "false")]
+    #[arg(short = 'D', long, default_value = "false")]
     disable_suse_edge_analysis: bool,
 
     /// Verbose logging (progress and summaries)

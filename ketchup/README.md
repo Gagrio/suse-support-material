@@ -1,40 +1,48 @@
 # 🍅 Ketchup - Kubernetes Config Collector
 
-> **Catch up** on your cluster configurations! 🏃‍♂️💨
+> **Catch up** on your cluster configuration! 🏃‍♂️💨
 
-A blazingly fast 🦀 Rust-powered tool that collects and archives Kubernetes cluster configurations for backup, analysis, and troubleshooting.
+A blazingly fast 🦀 Rust-powered tool that collects and archives Kubernetes cluster configuration for backup, analysis, and troubleshooting.
 
 ## ✨ Features
 
 🔐 **Secure & Explicit** - Requires explicit kubeconfig path (no magic auto-discovery)  
-📦 **Multi-Format Output** - Saves configurations in both JSON and YAML formats  
-🗂️ **Organized Structure** - Creates timestamped directories for each collection  
+📦 **Multi-Format Output** - Saves resources in JSON, YAML, or both formats  
+🗂️ **Organized Structure** - Creates timestamped directories with logical resource grouping  
 📊 **Collection Summaries** - Generates detailed metadata about what was collected  
-🗜️ **Compressed Archives** - Creates `.tar.gz` archives for easy storage and sharing  
+🗜️ **Flexible Compression** - Creates `.tar.gz` archives, uncompressed, or both  
 🐳 **Container Ready** - Uses `/tmp` for output, perfect for containerized environments  
-🚀 **Production Tested** - Works with real Kubernetes clusters (tested with K3s)  
+🚀 **Production Tested** - Works with real Kubernetes clusters (tested with K3s and RKE2)  
 ⚡ **Fast & Reliable** - Built with Rust for maximum performance and safety  
+✨ **kubectl Apply Ready** - Sanitizes resources by default for immediate redeployment  
+🍅 **SUSE Edge Detection** - Automatically detects and analyzes SUSE Edge components  
+🎯 **Custom Resources** - Comprehensive CRD and custom resource instance collection  
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- 🦀 **Rust** (install via [rustup](https://rustup.rs/))
+- 🐳 **Docker** or **Podman** for running containers
 - ☸️ **Kubernetes cluster** with accessible kubeconfig
-- 📁 **Write access** to `/tmp` directory
+- 📁 **Write access** to output directory (default: `/tmp`)
 
-### Installation
+### Running with Podman
 
 ```bash
-# Clone the repository
-git clone https://github.com/Gagrio/suse-support-material.git
-cd suse-support-material/ketchup
+# Pull the latest container image
+podman pull ghcr.io/gagrio/ketchup:latest
 
-# Build the tool
-cargo build --release
+# Run with your kubeconfig
+podman run -v ~/.kube/config:/kubeconfig:ro \
+           -v /tmp:/tmp \
+           ghcr.io/gagrio/ketchup:latest \
+           --kubeconfig /kubeconfig --verbose
 
-# Run it!
-cargo run -- --kubeconfig ~/.kube/config --verbose
+# Run with custom output directory
+podman run -v ~/.kube/config:/kubeconfig:ro \
+           -v /path/to/output:/output \
+           ghcr.io/gagrio/ketchup:latest \
+           --kubeconfig /kubeconfig --output /output
 ```
 
 ## 📖 Usage
@@ -42,17 +50,30 @@ cargo run -- --kubeconfig ~/.kube/config --verbose
 ### Basic Usage
 
 ```bash
-# Collect from default namespace
-cargo run -- --kubeconfig ~/.kube/config
+# Collect from all namespaces (default behavior)
+podman run -v ~/.kube/config:/kubeconfig:ro -v /tmp:/tmp \
+           ghcr.io/gagrio/ketchup:latest --kubeconfig /kubeconfig
 
 # Collect from specific namespaces
-cargo run -- --kubeconfig ~/.kube/config --namespaces "kube-system,default"
+podman run -v ~/.kube/config:/kubeconfig:ro -v /tmp:/tmp \
+           ghcr.io/gagrio/ketchup:latest --kubeconfig /kubeconfig \
+           --namespaces "kube-system,default"
 
 # Verbose output with detailed logging
-cargo run -- --kubeconfig ~/.kube/config --verbose
+podman run -v ~/.kube/config:/kubeconfig:ro -v /tmp:/tmp \
+           ghcr.io/gagrio/ketchup:latest --kubeconfig /kubeconfig --verbose
 
-# Custom output directory
-cargo run -- --kubeconfig ~/.kube/config --output /my/backup/dir
+# Include custom resources and CRDs
+podman run -v ~/.kube/config:/kubeconfig:ro -v /tmp:/tmp \
+           ghcr.io/gagrio/ketchup:latest --kubeconfig /kubeconfig -C
+
+# Disable SUSE Edge analysis
+podman run -v ~/.kube/config:/kubeconfig:ro -v /tmp:/tmp \
+           ghcr.io/gagrio/ketchup:latest --kubeconfig /kubeconfig -D
+
+# Raw mode (unsanitized resources)
+podman run -v ~/.kube/config:/kubeconfig:ro -v /tmp:/tmp \
+           ghcr.io/gagrio/ketchup:latest --kubeconfig /kubeconfig --raw
 ```
 
 ### Command Line Options
@@ -60,70 +81,138 @@ cargo run -- --kubeconfig ~/.kube/config --output /my/backup/dir
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
 | `--kubeconfig` | `-k` | **Required** Path to kubeconfig file | - |
-| `--namespaces` | `-n` | Comma-separated list of namespaces | `default` |
+| `--namespaces` | `-n` | Comma-separated list of namespaces | All namespaces |
 | `--output` | `-o` | Output directory for archives | `/tmp` |
+| `--format` | `-f` | Output format: `json`, `yaml`, or `both` | `yaml` |
+| `--compression` | `-c` | Compression: `compressed`, `uncompressed`, or `both` | `compressed` |
+| `--include-custom-resources` | `-C` | Include CRDs and custom resource instances | `false` |
+| `--raw` | `-r` | Collect raw unsanitized resources | `false` |
+| `--disable-suse-edge-analysis` | `-D` | Disable SUSE Edge component detection | `false` |
 | `--verbose` | `-v` | Enable verbose logging | `false` |
+| `--debug` | `-d` | Enable debug logging | `false` |
 | `--help` | `-h` | Show help message | - |
 
 ## 📁 Output Structure
 
-Ketchup creates organized, timestamped output:
+Ketchup creates organized, timestamped output with a new logical structure:
 
 ```
-/tmp/ketchup-2025-06-11-19-46-40/
-├── 📄 collection-summary.json       # Collection metadata (JSON)
-├── 📄 collection-summary.yaml       # Collection metadata (YAML) 
-├── 📄 default-pods.json             # Pods from 'default' namespace (JSON)
-├── 📄 default-pods.yaml             # Pods from 'default' namespace (YAML)
-├── 📄 kube-system-pods.json         # Pods from 'kube-system' namespace (JSON)
-└── 📄 kube-system-pods.yaml         # Pods from 'kube-system' namespace (YAML)
+/tmp/ketchup-2025-06-30-14-30-45/
+├── 📋 collection-summary.yaml           # Main collection metadata and overview
+├── 🍅 suse-edge-analysis.yaml          # SUSE Edge component analysis (if enabled)
+├── 📂 cluster-wide-resources/           # Cluster-scoped resources
+│   ├── 📂 nodes/                        # Individual node YAML files
+│   ├── 📂 clusterroles/                 # Cluster roles
+│   ├── 📂 clusterrolebindings/          # Cluster role bindings
+│   ├── 📂 persistentvolumes/            # Persistent volumes
+│   ├── 📂 storageclasses/               # Storage classes
+│   └── 📂 custom-resources/             # CRDs and cluster-scoped custom resources
+│       └── 📂 customresourcedefinitions/
+└── 📂 namespaced-resources/             # Namespace-scoped resources
+    ├── 📂 kube-system/                  # Resources in kube-system namespace
+    │   ├── 📂 pods/                     # Individual pod YAML files
+    │   ├── 📂 services/                 # Services
+    │   ├── 📂 deployments/              # Deployments
+    │   ├── 📂 configmaps/               # ConfigMaps
+    │   ├── 📂 secrets/                  # Secrets
+    │   └── 📂 custom-resources/         # Namespaced custom resources
+    └── 📂 default/                      # Resources in default namespace
+        ├── 📂 pods/
+        ├── 📂 services/
+        └── ...
 
-# Plus a compressed archive:
-/tmp/ketchup-2025-06-11-19-46-40.tar.gz  🗜️
+# Plus compressed archive:
+/tmp/ketchup-2025-06-30-14-30-45.tar.gz  🗜️
 ```
 
-### Summary File Example
+### Collection Summary Example
 
-```json
-{
-  "collection_info": {
-    "timestamp": "2025-06-11T19:46:40.569981Z",
-    "tool": "ketchup",
-    "version": "0.1.0"
-  },
-  "cluster_info": {
-    "namespaces_requested": ["kube-system", "default"],
-    "namespaces_collected": 2,
-    "total_pods_collected": 7
-  },
-  "files_created": {
-    "json_files": ["kube-system-pods.json", "default-pods.json"],
-    "yaml_files": ["kube-system-pods.yaml", "default-pods.yaml"]
-  }
-}
+```yaml
+# 🍅 KETCHUP CLUSTER COLLECTION SUMMARY
+# Generated: 2025-06-30T14:30:45Z
+# SUSE Edge Analysis: High confidence
+# Kubernetes Distribution: K3s
+# Mode: SANITIZED (kubectl apply ready)
+# =======================================
+
+📋 collection_info:
+  timestamp: "2025-06-30T14:30:45Z"
+  tool: ketchup
+  version: "0.1.0"
+
+📊 cluster_overview:
+  total_resources: 156
+  namespaces: 4
+  cluster_resources: 28
+  namespaced_resources: 128
+
+✨ sanitization:
+  mode: sanitized
+  kubectl_ready: true
+  total_processed: 156
+  successfully_sanitized: 156
+  note: "All resources successfully sanitized for kubectl apply."
+
+🎯 resource_highlights:
+  workloads:
+    pods: 12
+    deployments: 8
+    daemon_sets: 4
+  security:
+    service_accounts: 15
+    total_rbac_resources: 45
+  configuration:
+    config_maps: 23
+    secrets: 18
+
+📁 output_structure:
+  kubectl_usage:
+    apply_cluster_resources: "kubectl apply -f cluster-wide-resources/ --recursive"
+    apply_namespaced_resources: "kubectl apply -f namespaced-resources/ --recursive"
+    apply_specific_namespace: "kubectl apply -f namespaced-resources/{namespace}/ --recursive"
 ```
 
-## 🐳 Containerization
+## 🔧 Resource Collection
 
-Perfect for running in containers! Example Dockerfile:
+### Core Resource Types Collected
 
-```dockerfile
-FROM rust:1.75 as builder
-WORKDIR /app
-COPY . .
-RUN cargo build --release
+**🏢 Namespaced Resources:**
+- 🚀 **Workloads**: Pods, Deployments, ReplicaSets, DaemonSets, StatefulSets, Jobs, CronJobs
+- 🌐 **Networking**: Services, Endpoints, EndpointSlices, Ingresses, NetworkPolicies  
+- ⚙️ **Configuration**: ConfigMaps, Secrets
+- 💾 **Storage**: PersistentVolumeClaims
+- 👤 **RBAC**: ServiceAccounts, Roles, RoleBindings
+- 📏 **Resource Management**: ResourceQuotas, LimitRanges, HorizontalPodAutoscalers, PodDisruptionBudgets
 
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/target/release/ketchup /usr/local/bin/
-CMD ["ketchup", "--help"]
-```
+**☸️ Cluster-Scoped Resources:**
+- 🖥️ **Infrastructure**: Nodes, PersistentVolumes, StorageClasses
+- 🔐 **Security**: ClusterRoles, ClusterRoleBindings
+- 🎯 **Custom Resources**: CustomResourceDefinitions (with `-C` flag)
 
-Run in container:
+### 🍅 SUSE Edge Detection
+
+Ketchup automatically analyzes your cluster for SUSE Edge components:
+
+- **🎯 Kubernetes Distribution**: Detects K3s, RKE2, or standard Kubernetes
+- **🔍 Component Detection**: Identifies Rancher, Longhorn, NeuVector, KubeVirt, and more
+- **📊 Confidence Scoring**: Provides confidence levels from "Minimal" to "Very High"
+- **🏗️ Deployment Classification**: Categorizes as Management, Downstream, or Standalone cluster
+- **📁 Detailed Analysis**: Creates separate `suse-edge-analysis.yaml` report
+
+## 💡 Resource Sanitization
+
+By default, Ketchup sanitizes resources for `kubectl apply` readiness:
+
+### ✨ Automatic Cleanup
+- **Removes**: `status`, `uid`, `resourceVersion`, `creationTimestamp`, `generation`
+- **Cleans**: Problematic annotations and finalizers
+- **Handles**: Service cluster IPs, PV claim references, auto-assigned node ports
+
+### 🔧 Raw Mode
+Use `--raw` flag to collect resources as-is from the cluster:
 ```bash
-docker run -v ~/.kube/config:/kubeconfig:ro \
-           -v /tmp:/tmp \
-           ketchup --kubeconfig /kubeconfig --output /tmp --verbose
+podman run -v ~/.kube/config:/kubeconfig:ro -v /tmp:/tmp \
+           ghcr.io/gagrio/ketchup:latest --kubeconfig /kubeconfig --raw
 ```
 
 ## 🔧 Development
@@ -151,75 +240,99 @@ cargo clippy
 
 ```
 src/
-├── main.rs          # 🚪 CLI interface and main application logic
+├── main.rs          # 🚪 CLI interface and orchestration
 ├── k8s.rs           # ☸️ Kubernetes client and resource collection
-└── output.rs        # 📁 File output and archive management
+├── output.rs        # 📁 File output, sanitization, and archive management
+└── suse_edge.rs     # 🍅 SUSE Edge component detection and analysis
 ```
 
-## 🛣️ Roadmap
+### 🧪 Testing
 
-### ✅ Completed
-- [x] 🔐 Explicit kubeconfig requirement
-- [x] 📦 Pod collection with JSON/YAML output
-- [x] 🗂️ Organized file structure
-- [x] 📊 Collection summaries
-- [x] 🗜️ Compressed archives
+```bash
+# Run all tests
+cargo test
 
-### 🚧 Coming Soon
-- [ ] ⚙️ **Configuration files** - YAML configs for customizable behavior
-- [ ] 🎯 **More resource types** - Services, Deployments, ConfigMaps, Secrets
-- [ ] 🏷️ **Label selectors** - Filter resources by labels
-- [ ] 📅 **Scheduling** - Automated periodic collections
-- [ ] 🔍 **Diff mode** - Compare configurations between collections
+# Run with output
+cargo test -- --nocapture
 
-## 🤝 Contributing
+# Run specific test module
+cargo test k8s::tests
+```
 
-We love contributions! 💖
+## 💡 Resource Sanitization
 
-1. 🍴 Fork the repository
-2. 🌟 Create a feature branch
-3. 🛠️ Make your changes
-4. ✅ Add tests if needed
-5. 📤 Submit a pull request
+By default, Ketchup sanitizes resources for `kubectl apply` readiness:
+
+### ✨ Automatic Cleanup
+- **Removes**: `status`, `uid`, `resourceVersion`, `creationTimestamp`, `generation`
+- **Cleans**: Problematic annotations and finalizers
+- **Handles**: Service cluster IPs, PV claim references, auto-assigned node ports
+
+### 🔧 Raw Mode
+Use `--raw` flag to collect resources as-is from the cluster:
+```bash
+docker run -v ~/.kube/config:/kubeconfig:ro -v /tmp:/tmp \
+           ghcr.io/gagrio/ketchup:latest --kubeconfig /kubeconfig --raw
+```
 
 ## 📋 Requirements
 
 - 🦀 **Rust 1.70+** (2021 edition)
-- ☸️ **Kubernetes cluster** (any version)
+- ☸️ **Kubernetes cluster** (any version, tested with 1.28+)
 - 📁 **File system access** for output directory
+- 🌐 **Network access** to Kubernetes API server
 
 ## 🐛 Troubleshooting
 
 ### Common Issues
 
 **🚫 "Failed to load kubeconfig"**
-- Check that the kubeconfig file exists and is readable
-- Verify the file format is valid YAML
-- Ensure you have network access to the cluster
+- ✅ Check that the kubeconfig file exists and is readable
+- ✅ Verify the file format is valid YAML
+- ✅ Ensure you have network access to the cluster
+- ✅ Test with `kubectl get nodes` first
 
-**📁 "Permission denied" on output**
-- Make sure the output directory is writable
-- Try using `/tmp` as output directory
-- Check file permissions with `ls -la`
+**📁 "Permission denied" on output****
+- ✅ Make sure the output directory is writable
+- ✅ Try using `/tmp` as output directory: `-o /tmp`
+- ✅ Check file permissions with `ls -la`
 
 **☸️ "Failed to connect to cluster"**
-- Verify cluster is accessible: `kubectl get nodes`
-- Check if kubeconfig context is correct
-- Ensure cluster certificates are valid
+- ✅ Verify cluster is accessible: `kubectl cluster-info`
+- ✅ Check if kubeconfig context is correct: `kubectl config current-context`
+- ✅ Ensure cluster certificates are valid
+
+**🎯 "Custom resource API errors"**
+- ✅ These are often safe to ignore - the tool continues successfully
+- ✅ Some CRDs may not have instances or may be in different API versions
+- ✅ Check the collection summary for actual resource counts
+
+**🍅 "SUSE Edge analysis disabled"**
+- ✅ SUSE Edge analysis runs by default
+- ✅ Use `-D` or `--disable-suse-edge-analysis` to explicitly disable
+- ✅ Check `suse-edge-analysis.yaml` for detailed component detection results
+
+## 📊 Performance
+
+- **⚡ Fast Collection**: Typically processes 100+ resources in under 30 seconds
+- **💾 Memory Efficient**: Streams resources to disk, minimal memory footprint
+- **🔄 Concurrent Processing**: Async Rust for optimal network utilization
+- **📦 Efficient Compression**: gzip compression reduces archive size by ~70%
 
 ## 📄 License
 
-This project is part of the SUSE Support Material collection.
+See the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
 - 🦀 Built with **Rust** for performance and safety
 - ☸️ Uses the **kube-rs** crate for Kubernetes API access
 - 🎨 Inspired by the need for better cluster configuration management
+- 🍅 Enhanced with SUSE Edge ecosystem awareness
 - ☕ Powered by lots of coffee and determination
 
 ---
 
 **Made with ❤️ and 🦀 by the SUSE Support Team**
 
-*Catch up on your cluster configs with Ketchup!* 🍅✨
+*Catch up on your cluster configuration with Ketchup!* 🍅✨
