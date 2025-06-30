@@ -518,10 +518,10 @@ async fn main() -> Result<()> {
     let mut cluster_stats = std::collections::HashMap::new();
 
     for (resource_type, cluster_resource_list) in &cluster_resources {
-        // Save cluster resources to cluster-wide directory
+        // Save cluster resources to cluster-wide-resources directory
         let (saved_count, sanitization_stats) = output_manager.save_resources_individually(
             &output_dir,
-            "cluster-wide", // Use "cluster-wide" as directory name
+            "cluster-wide", // Use "cluster-wide" as directory name - will be mapped to cluster-wide-resources/
             cluster_resource_list,
             resource_type,
             &args.format,

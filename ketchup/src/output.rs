@@ -101,14 +101,13 @@ impl SanitizationStats {
     }
 }
 
-// ===== NEW: SUSE Edge Analysis Structs =====
+// ===== SUSE Edge Analysis Structs =====
 
 #[derive(Debug, Clone)]
 pub struct SuseEdgeAnalysis {
     pub components: Vec<SuseEdgeComponent>,
     pub total_components: usize,
     pub confidence: String,
-    pub edge_version_detected: Option<String>,
     pub deployment_type: String, // "Management Cluster", "Downstream Cluster", "Standalone"
     pub kubernetes_distribution: Option<String>, // "RKE2", "K3s", or "Unknown"
 }
@@ -117,7 +116,6 @@ pub struct SuseEdgeAnalysis {
 pub struct SuseEdgeComponent {
     pub name: String,
     pub version: Option<String>,
-    pub chart_version: Option<String>,
     pub found_in: Vec<String>,
     pub category: String, // "Core", "Storage", "Security", "Networking", "Virtualization", "Tools"
 }
@@ -325,13 +323,30 @@ impl OutputManager {
         // Determine if this is a custom resource (contains '.')
         let is_custom_resource = resource_type.contains('.');
 
-        let resource_dir = if is_custom_resource {
-            format!(
-                "{}/{}/custom-resources/{}",
-                output_dir, namespace, resource_type
-            )
+        // Build the new directory structure
+        let resource_dir = if namespace == "cluster-wide" {
+            // Cluster-wide resources go in cluster-wide-resources/
+            if is_custom_resource {
+                format!(
+                    "{}/cluster-wide-resources/custom-resources/{}",
+                    output_dir, resource_type
+                )
+            } else {
+                format!("{}/cluster-wide-resources/{}", output_dir, resource_type)
+            }
         } else {
-            format!("{}/{}/{}", output_dir, namespace, resource_type)
+            // Namespace resources go in namespaced-resources/{namespace}/
+            if is_custom_resource {
+                format!(
+                    "{}/namespaced-resources/{}/custom-resources/{}",
+                    output_dir, namespace, resource_type
+                )
+            } else {
+                format!(
+                    "{}/namespaced-resources/{}/{}",
+                    output_dir, namespace, resource_type
+                )
+            }
         };
 
         fs::create_dir_all(&resource_dir).with_context(|| {
@@ -411,10 +426,18 @@ impl OutputManager {
                 format!(" (raw)")
             };
 
-            let location_info = if is_custom_resource {
-                format!(" to {}/custom-resources/", namespace)
+            let location_info = if namespace == "cluster-wide" {
+                if is_custom_resource {
+                    format!(" to cluster-wide-resources/custom-resources/")
+                } else {
+                    format!(" to cluster-wide-resources/")
+                }
             } else {
-                format!(" to {}/", namespace)
+                if is_custom_resource {
+                    format!(" to namespaced-resources/{}/custom-resources/", namespace)
+                } else {
+                    format!(" to namespaced-resources/{}/", namespace)
+                }
             };
 
             info!(
@@ -426,7 +449,7 @@ impl OutputManager {
         Ok((saved_count, sanitization_stats))
     }
 
-    /// Enhanced summary creation that includes optional SUSE Edge analysis
+    /// Enhanced summary creation that includes SUSE Edge analysis by default
     pub fn create_enhanced_summary(
         &self,
         output_dir: &str,
@@ -434,7 +457,7 @@ impl OutputManager {
         cluster_stats: &std::collections::HashMap<String, usize>,
         sanitization_stats: &SanitizationStats,
         raw_mode: bool,
-        suse_edge_analysis: Option<&SuseEdgeAnalysis>, // NEW parameter
+        suse_edge_analysis: Option<&SuseEdgeAnalysis>, // Analysis is now always performed
     ) -> Result<()> {
         // Calculate totals for cluster overview (existing logic)
         let mut total_namespaced_resources = 0;
@@ -590,7 +613,7 @@ impl OutputManager {
             );
         }
 
-        // Count directory structure (only non-empty)
+        // Count directory structure (only non-empty) - updated for new structure
         let cluster_dir_types = cluster_resource_map.len();
         let mut namespace_dir_info = Vec::new();
         for stats in namespace_stats {
@@ -635,8 +658,8 @@ impl OutputManager {
             }
         }
 
-        // Build the summary with optional SUSE Edge section
-        let mut summary = serde_json::json!({
+        // Build the summary WITHOUT SUSE Edge section (detailed report handles that)
+        let summary = serde_json::json!({
             "📋 collection_info": {
                 "timestamp": self.timestamp.to_rfc3339(),
                 "tool": "ketchup",
@@ -657,20 +680,20 @@ impl OutputManager {
                 "formats": ["yaml"],
                 "compression": "gzip",
                 "directory_structure": {
-                    "cluster_wide": format!("cluster-wide/ ({} resource types)", cluster_dir_types),
-                    "namespaces": namespace_dir_info
+                    "cluster_wide_resources": format!("cluster-wide-resources/ ({} resource types)", cluster_dir_types),
+                    "namespaced_resources": format!("namespaced-resources/ (contains {} namespaces)", namespace_dir_info.len()),
+                    "namespaces_included": namespace_dir_info
+                },
+                "kubectl_usage": {
+                    "apply_cluster_resources": "kubectl apply -f cluster-wide-resources/ --recursive",
+                    "apply_namespaced_resources": "kubectl apply -f namespaced-resources/ --recursive",
+                    "apply_specific_namespace": "kubectl apply -f namespaced-resources/{namespace}/ --recursive"
                 }
             }
         });
 
-        // Add SUSE Edge analysis if present
-        if let Some(edge_analysis) = suse_edge_analysis {
-            let edge_section = self.build_suse_edge_section(edge_analysis)?;
-            summary
-                .as_object_mut()
-                .unwrap()
-                .insert("🍅 suse_edge_analysis".to_string(), edge_section);
-        }
+        // SUSE Edge analysis details are now ONLY in the separate detailed report
+        // No longer included in the main collection summary
 
         // Create summary file
         let filename = format!("{}/collection-summary.yaml", output_dir);
@@ -681,12 +704,18 @@ impl OutputManager {
         summary_content.push_str(&format!("# Generated: {}\n", self.timestamp.to_rfc3339()));
 
         if let Some(edge_analysis) = suse_edge_analysis {
-            summary_content.push_str(&format!(
-                "# SUSE Edge Detection: {} confidence\n",
-                edge_analysis.confidence
-            ));
-            if let Some(ref k8s_dist) = edge_analysis.kubernetes_distribution {
-                summary_content.push_str(&format!("# Kubernetes Distribution: {}\n", k8s_dist));
+            if edge_analysis.total_components > 0 {
+                summary_content.push_str(&format!(
+                    "# SUSE Edge Detection: {} confidence\n",
+                    edge_analysis.confidence
+                ));
+                if let Some(ref k8s_dist) = edge_analysis.kubernetes_distribution {
+                    summary_content.push_str(&format!("# Kubernetes Distribution: {}\n", k8s_dist));
+                }
+            } else {
+                summary_content
+                    .push_str("# SUSE Edge Analysis: No SUSE Edge components detected\n");
+                summary_content.push_str("# Cluster Type: Standard Kubernetes\n");
             }
         }
 
@@ -708,13 +737,12 @@ impl OutputManager {
             .replace("☸️ cluster_resources:", "\n☸️ cluster_resources:")
             .replace("🏢 namespaces:", "\n🏢 namespaces:")
             .replace("🎯 resource_highlights:", "\n🎯 resource_highlights:")
-            .replace("🍅 suse_edge_analysis:", "\n🍅 suse_edge_analysis:")
             .replace("📁 output_structure:", "\n📁 output_structure:");
 
         summary_content.push_str(&spaced_yaml);
         fs::write(&filename, summary_content).context("Failed to write YAML summary file")?;
 
-        // Create separate detailed SUSE Edge report if analysis was performed
+        // Create detailed SUSE Edge report (always, even if empty) - this is where all SUSE Edge details go
         if let Some(edge_analysis) = suse_edge_analysis {
             self.create_detailed_suse_edge_report(output_dir, edge_analysis)?;
         }
@@ -722,23 +750,33 @@ impl OutputManager {
         Ok(())
     }
 
-    /// Build SUSE Edge section for the main summary
+    /// Build SUSE Edge section for the main summary (clean version) - UNUSED NOW
+    #[allow(dead_code)]
     fn build_suse_edge_section(
         &self,
         edge_analysis: &SuseEdgeAnalysis,
     ) -> Result<serde_json::Value> {
-        let mut components_by_category = std::collections::HashMap::new();
+        if edge_analysis.total_components == 0 {
+            return Ok(serde_json::json!({
+                "detection_summary": {
+                    "total_components": 0,
+                    "confidence_level": edge_analysis.confidence,
+                    "deployment_type": edge_analysis.deployment_type,
+                    "kubernetes_distribution": null
+                },
+                "analysis_note": "No SUSE Edge components detected - this appears to be a standard Kubernetes cluster"
+            }));
+        }
 
-        // Group components by category
+        // Group components by category for clean display
+        let mut components_by_category = std::collections::HashMap::new();
         for component in &edge_analysis.components {
             components_by_category
                 .entry(component.category.clone())
                 .or_insert_with(Vec::new)
                 .push(serde_json::json!({
                     "name": component.name,
-                    "version": component.version,
-                    "chart_version": component.chart_version,
-                    "locations_count": component.found_in.len()
+                    "version": component.version.as_deref().unwrap_or("detected")
                 }));
         }
 
@@ -746,79 +784,101 @@ impl OutputManager {
             "detection_summary": {
                 "total_components": edge_analysis.total_components,
                 "confidence_level": edge_analysis.confidence,
-                "edge_version": edge_analysis.edge_version_detected,
                 "deployment_type": edge_analysis.deployment_type,
                 "kubernetes_distribution": edge_analysis.kubernetes_distribution
             },
             "components_by_category": components_by_category,
-            "quick_assessment": self.generate_quick_assessment(edge_analysis)
+            "quick_assessment": Vec::<String>::new() // Simplified since function is unused
         }))
     }
 
-    /// Create detailed SUSE Edge report as separate file
+    /// Create detailed SUSE Edge report as separate file (clean version)
     fn create_detailed_suse_edge_report(
         &self,
         output_dir: &str,
         edge_analysis: &SuseEdgeAnalysis,
     ) -> Result<()> {
         let filename = format!("{}/suse-edge-analysis.yaml", output_dir);
-        info!("🍅 Creating detailed SUSE Edge analysis: {}", filename);
+
+        if edge_analysis.total_components == 0 {
+            info!(
+                "🍅 Creating SUSE Edge analysis (no components found): {}",
+                filename
+            );
+        } else {
+            info!("🍅 Creating SUSE Edge analysis: {}", filename);
+        }
 
         let mut report_content = String::new();
         report_content.push_str("# 🍅 SUSE EDGE COMPONENT ANALYSIS\n");
         report_content.push_str(&format!("# Generated: {}\n", self.timestamp.to_rfc3339()));
-        report_content.push_str(&format!(
-            "# Confidence: {} ({})\n",
-            edge_analysis.confidence,
-            self.get_confidence_description(&edge_analysis.confidence)
-        ));
-        if let Some(ref version) = edge_analysis.edge_version_detected {
-            report_content.push_str(&format!("# SUSE Edge Version: {}\n", version));
+
+        if edge_analysis.total_components == 0 {
+            report_content.push_str("# Result: No SUSE Edge components detected\n");
+            report_content.push_str("# Cluster Type: Standard Kubernetes\n");
+        } else {
+            report_content.push_str(&format!("# Confidence: {}\n", edge_analysis.confidence));
+            report_content.push_str(&format!(
+                "# Deployment Type: {}\n",
+                edge_analysis.deployment_type
+            ));
         }
         report_content.push_str("# ========================================\n\n");
 
-        // Build detailed report structure
-        let mut detailed_components = Vec::new();
-        for component in &edge_analysis.components {
-            detailed_components.push(serde_json::json!({
-                "name": component.name,
-                "version": component.version,
-                "chart_version": component.chart_version,
-                "category": component.category,
-                "found_in": component.found_in,
-                "detection_confidence": self.assess_component_confidence(component)
-            }));
-        }
+        let detailed_report = if edge_analysis.total_components == 0 {
+            serde_json::json!({
+                "🎯 analysis_summary": {
+                    "total_components_detected": 0,
+                    "confidence_level": edge_analysis.confidence,
+                    "deployment_type": edge_analysis.deployment_type,
+                    "kubernetes_distribution": null,
+                    "analysis_timestamp": self.timestamp.to_rfc3339(),
+                    "result": "No SUSE Edge components found"
+                },
+                "📊 cluster_assessment": {
+                    "cluster_type": "Standard Kubernetes",
+                    "suse_edge_presence": "Not detected",
+                    "analysis_scope": "Full cluster scan performed"
+                },
+                "💡 recommendations": [
+                    "This appears to be a standard Kubernetes cluster",
+                    "No SUSE Edge specific components were detected",
+                    "Cluster can be managed using standard Kubernetes tools"
+                ]
+            })
+        } else {
+            // Clean version - no verbose file lists
+            let mut clean_components = Vec::new();
+            for component in &edge_analysis.components {
+                clean_components.push(serde_json::json!({
+                    "name": component.name,
+                    "version": component.version.as_deref().unwrap_or("detected"),
+                    "category": component.category,
+                    "detection_method": component.found_in.first().unwrap_or(&"Multiple sources".to_string())
+                }));
+            }
 
-        let detailed_report = serde_json::json!({
-            "🎯 analysis_summary": {
-                "total_components_detected": edge_analysis.total_components,
-                "confidence_level": edge_analysis.confidence,
-                "edge_version_detected": edge_analysis.edge_version_detected,
-                "deployment_type": edge_analysis.deployment_type,
-                "kubernetes_distribution": edge_analysis.kubernetes_distribution,
-                "analysis_timestamp": self.timestamp.to_rfc3339()
-            },
-            "📊 component_breakdown": {
-                "by_category": self.group_components_by_category(&edge_analysis.components),
-                "version_summary": self.summarize_component_versions(&edge_analysis.components)
-            },
-            "🔍 detailed_findings": detailed_components,
-            "💡 recommendations": self.generate_recommendations(edge_analysis),
-            "⚠️ notes": [
-                "This analysis is based on detected Kubernetes resources and container images",
-                "Some components may be present but not detected if they use non-standard configurations",
-                "Confidence level indicates the reliability of the detection based on found evidence"
-            ]
-        });
+            serde_json::json!({
+                "🎯 analysis_summary": {
+                    "total_components_detected": edge_analysis.total_components,
+                    "confidence_level": edge_analysis.confidence,
+                    "deployment_type": edge_analysis.deployment_type,
+                    "kubernetes_distribution": edge_analysis.kubernetes_distribution,
+                    "analysis_timestamp": self.timestamp.to_rfc3339()
+                },
+                "📊 component_breakdown": self.group_components_by_category_clean(&edge_analysis.components),
+                "🔍 detected_components": clean_components,
+                "💡 recommendations": self.generate_recommendations_clean(edge_analysis)
+            })
+        };
 
         let yaml_content = serde_yaml::to_string(&detailed_report)?;
         let spaced_yaml = yaml_content
             .replace("🎯 analysis_summary:", "\n🎯 analysis_summary:")
             .replace("📊 component_breakdown:", "\n📊 component_breakdown:")
-            .replace("🔍 detailed_findings:", "\n🔍 detailed_findings:")
-            .replace("💡 recommendations:", "\n💡 recommendations:")
-            .replace("⚠️ notes:", "\n⚠️ notes:");
+            .replace("📊 cluster_assessment:", "\n📊 cluster_assessment:")
+            .replace("🔍 detected_components:", "\n🔍 detected_components:")
+            .replace("💡 recommendations:", "\n💡 recommendations:");
 
         report_content.push_str(&spaced_yaml);
         fs::write(&filename, report_content)?;
@@ -826,77 +886,32 @@ impl OutputManager {
         Ok(())
     }
 
-    // Helper methods for SUSE Edge analysis
-
-    fn generate_quick_assessment(&self, edge_analysis: &SuseEdgeAnalysis) -> Vec<String> {
-        let mut assessment = Vec::new();
-
-        if edge_analysis.total_components >= 5 {
-            assessment.push("Full SUSE Edge deployment detected".to_string());
-        } else if edge_analysis.total_components >= 2 {
-            assessment.push("Partial SUSE Edge deployment detected".to_string());
-        } else {
-            assessment.push("Limited SUSE Edge components detected".to_string());
-        }
-
-        if edge_analysis.kubernetes_distribution.is_some() {
-            assessment.push("SUSE Kubernetes distribution in use".to_string());
-        }
-
-        assessment
-    }
-
-    fn get_confidence_description(&self, confidence: &str) -> &'static str {
-        match confidence {
-            "Very High" => "Strong evidence of SUSE Edge deployment",
-            "High" => "Good evidence of SUSE Edge components",
-            "Medium" => "Some SUSE Edge components detected",
-            "Low" => "Few SUSE Edge indicators found",
-            _ => "Minimal SUSE Edge presence",
-        }
-    }
-
-    fn assess_component_confidence(&self, component: &SuseEdgeComponent) -> String {
-        if component.version.is_some() && component.found_in.len() > 1 {
-            "High".to_string()
-        } else if component.version.is_some() || component.found_in.len() > 1 {
-            "Medium".to_string()
-        } else {
-            "Low".to_string()
-        }
-    }
-
-    fn group_components_by_category(&self, components: &[SuseEdgeComponent]) -> serde_json::Value {
+    // Clean helper methods for SUSE Edge analysis
+    fn group_components_by_category_clean(
+        &self,
+        components: &[SuseEdgeComponent],
+    ) -> serde_json::Value {
         let mut by_category = std::collections::HashMap::new();
 
         for component in components {
             by_category
                 .entry(&component.category)
                 .or_insert_with(Vec::new)
-                .push(&component.name);
+                .push(serde_json::json!({
+                    "name": &component.name,
+                    "version": component.version.as_deref().unwrap_or("detected")
+                }));
         }
 
         serde_json::to_value(by_category).unwrap_or_default()
     }
 
-    fn summarize_component_versions(&self, components: &[SuseEdgeComponent]) -> serde_json::Value {
-        let mut version_summary = std::collections::HashMap::new();
-
-        for component in components {
-            if let Some(ref version) = component.version {
-                version_summary.insert(&component.name, version);
-            }
-        }
-
-        serde_json::to_value(version_summary).unwrap_or_default()
-    }
-
-    fn generate_recommendations(&self, edge_analysis: &SuseEdgeAnalysis) -> Vec<String> {
+    fn generate_recommendations_clean(&self, edge_analysis: &SuseEdgeAnalysis) -> Vec<String> {
         let mut recommendations = Vec::new();
 
         if edge_analysis.total_components < 3 {
             recommendations.push(
-                "Consider reviewing SUSE Edge documentation for complete component setup"
+                "Consider reviewing complete SUSE Edge documentation for full deployment"
                     .to_string(),
             );
         }
@@ -908,16 +923,12 @@ impl OutputManager {
         }
 
         if edge_analysis.kubernetes_distribution.is_none() {
-            recommendations.push(
-                "Unable to detect Kubernetes distribution - manual verification recommended"
-                    .to_string(),
-            );
+            recommendations.push("Kubernetes distribution could not be determined".to_string());
         }
 
-        recommendations.push(
-            "Review the detailed findings for specific component locations and versions"
-                .to_string(),
-        );
+        if recommendations.is_empty() {
+            recommendations.push("SUSE Edge deployment detected successfully".to_string());
+        }
 
         recommendations
     }

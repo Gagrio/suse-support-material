@@ -4,192 +4,18 @@ use tracing::{debug, info};
 
 use crate::output::{SuseEdgeAnalysis, SuseEdgeComponent};
 
-/// Official SUSE Edge 3.3 Component Registry
-/// Based on: https://documentation.suse.com/suse-edge/3.3/html/edge/id-release-notes.html#id-component-versions
-const SUSE_EDGE_COMPONENTS: &[SuseEdgeComponentInfo] = &[
-    // Core Platform
-    SuseEdgeComponentInfo {
-        name: "SUSE Linux Micro",
-        version: "6.1",
-        patterns: &["sle-micro", "linux-micro"],
-        namespaces: &["kube-system"],
-        category: "Core",
-    },
-    SuseEdgeComponentInfo {
-        name: "SUSE Multi-Linux Manager",
-        version: "5.0.3",
-        patterns: &["suse-manager", "suma"],
-        namespaces: &["suse-manager"],
-        category: "Core",
-    },
-    // Kubernetes Distributions
-    SuseEdgeComponentInfo {
-        name: "K3s",
-        version: "1.32.4",
-        patterns: &["k3s"],
-        namespaces: &["kube-system"],
-        category: "Core",
-    },
-    SuseEdgeComponentInfo {
-        name: "RKE2",
-        version: "1.32.4",
-        patterns: &["rke2"],
-        namespaces: &["kube-system"],
-        category: "Core",
-    },
-    // Management & Orchestration
-    SuseEdgeComponentInfo {
-        name: "SUSE Rancher Prime",
-        version: "2.11.2",
-        patterns: &["rancher"],
-        namespaces: &["cattle-system", "rancher-operator-system"],
-        category: "Management",
-    },
-    SuseEdgeComponentInfo {
-        name: "Rancher Turtles (CAPI)",
-        version: "0.20.0",
-        patterns: &["rancher-turtles", "cluster-api"],
-        namespaces: &["rancher-turtles-system", "capi-system"],
-        category: "Management",
-    },
-    // Storage & Security
-    SuseEdgeComponentInfo {
-        name: "SUSE Storage (Longhorn)",
-        version: "1.8.1",
-        patterns: &["longhorn"],
-        namespaces: &["longhorn-system"],
-        category: "Storage",
-    },
-    SuseEdgeComponentInfo {
-        name: "SUSE Security (NeuVector)",
-        version: "5.4.4",
-        patterns: &["neuvector"],
-        namespaces: &["neuvector"],
-        category: "Security",
-    },
-    // Infrastructure Management
-    SuseEdgeComponentInfo {
-        name: "Metal3",
-        version: "0.11.5",
-        patterns: &["metal3", "baremetal-operator", "ironic"],
-        namespaces: &["metal3-system"],
-        category: "Infrastructure",
-    },
-    SuseEdgeComponentInfo {
-        name: "MetalLB",
-        version: "0.14.9",
-        patterns: &["metallb"],
-        namespaces: &["metallb-system"],
-        category: "Networking",
-    },
-    SuseEdgeComponentInfo {
-        name: "Elemental",
-        version: "1.6.8",
-        patterns: &["elemental"],
-        namespaces: &["cattle-elemental-system"],
-        category: "Infrastructure",
-    },
-    // Virtualization Stack
-    SuseEdgeComponentInfo {
-        name: "KubeVirt",
-        version: "1.4.0",
-        patterns: &["kubevirt"],
-        namespaces: &["kubevirt"],
-        category: "Virtualization",
-    },
-    SuseEdgeComponentInfo {
-        name: "KubeVirt Dashboard Extension",
-        version: "1.3.2",
-        patterns: &["kubevirt-dashboard"],
-        namespaces: &["cattle-ui-plugin-system"],
-        category: "Virtualization",
-    },
-    SuseEdgeComponentInfo {
-        name: "Containerized Data Importer",
-        version: "1.61.0",
-        patterns: &["cdi"],
-        namespaces: &["cdi"],
-        category: "Virtualization",
-    },
-    // Networking
-    SuseEdgeComponentInfo {
-        name: "SR-IOV Network Operator",
-        version: "1.5.0",
-        patterns: &["sriov"],
-        namespaces: &["sriov-network-operator"],
-        category: "Networking",
-    },
-    SuseEdgeComponentInfo {
-        name: "Endpoint Copier Operator",
-        version: "0.2.0",
-        patterns: &["endpoint-copier"],
-        namespaces: &["endpoint-copier-operator"],
-        category: "Networking",
-    },
-    // Lifecycle Management
-    SuseEdgeComponentInfo {
-        name: "System Upgrade Controller",
-        version: "0.15.2",
-        patterns: &["system-upgrade-controller"],
-        namespaces: &["system-upgrade"],
-        category: "Management",
-    },
-    SuseEdgeComponentInfo {
-        name: "Upgrade Controller",
-        version: "0.1.1",
-        patterns: &["upgrade-controller"],
-        namespaces: &["upgrade-controller-system"],
-        category: "Management",
-    },
-    // Edge Tools & Extensions
-    SuseEdgeComponentInfo {
-        name: "Edge Image Builder",
-        version: "1.2.1",
-        patterns: &["edge-image-builder", "eib"],
-        namespaces: &["eib-system"],
-        category: "Tools",
-    },
-    SuseEdgeComponentInfo {
-        name: "NM Configurator",
-        version: "0.3.3",
-        patterns: &["nm-configurator"],
-        namespaces: &["kube-system"],
-        category: "Tools",
-    },
-    SuseEdgeComponentInfo {
-        name: "Elemental Dashboard Extension",
-        version: "3.0.1",
-        patterns: &["elemental-ui"],
-        namespaces: &["cattle-ui-plugin-system"],
-        category: "Tools",
-    },
-    SuseEdgeComponentInfo {
-        name: "Kiwi Builder",
-        version: "10.2.12.0",
-        patterns: &["kiwi-builder"],
-        namespaces: &["kiwi-system"],
-        category: "Tools",
-    },
-    // Technology Previews
-    SuseEdgeComponentInfo {
-        name: "Akri (Tech Preview)",
-        version: "0.12.20",
-        patterns: &["akri"],
-        namespaces: &["akri"],
-        category: "IoT",
-    },
-];
-
-#[derive(Debug)]
-struct SuseEdgeComponentInfo {
-    name: &'static str,
-    version: &'static str,
-    patterns: &'static [&'static str],
-    namespaces: &'static [&'static str],
-    category: &'static str,
+/// Create an empty analysis result to indicate no SUSE Edge components were found
+pub fn create_empty_analysis() -> SuseEdgeAnalysis {
+    SuseEdgeAnalysis {
+        components: Vec::new(),
+        total_components: 0,
+        confidence: "None - Standard Kubernetes".to_string(),
+        deployment_type: "Standard Kubernetes Cluster".to_string(),
+        kubernetes_distribution: None,
+    }
 }
 
-/// Comprehensive SUSE Edge component detection
+/// Comprehensive SUSE Edge component detection with clean, precise logic
 pub fn detect_suse_edge_components(
     namespaced_resources: &HashMap<String, Vec<Value>>,
     cluster_resources: &HashMap<String, Vec<Value>>,
@@ -198,37 +24,33 @@ pub fn detect_suse_edge_components(
     let mut detection_confidence = 0;
     let mut kubernetes_distribution = None;
 
-    info!("🔍 Performing comprehensive SUSE Edge component scan...");
+    info!("🔍 Performing SUSE Edge component scan...");
 
-    // 1. Detect Kubernetes Distribution (High Priority)
-    if let Some(k8s_dist) = detect_kubernetes_distribution(namespaced_resources) {
-        detection_confidence += 30; // High weight for K8s distribution
-        if let Some(first_dist) = k8s_dist.first() {
-            kubernetes_distribution = Some(first_dist.name.clone());
-        }
-        detected_components.extend(k8s_dist);
+    // 1. Detect Kubernetes Distribution (conservative approach)
+    if let Some(k8s_dist) =
+        detect_kubernetes_distribution_precise(namespaced_resources, cluster_resources)
+    {
+        detection_confidence += 20;
+        kubernetes_distribution = Some(k8s_dist.name.clone());
+        detected_components.push(k8s_dist);
     }
 
-    // 2. Detect Core SUSE Components
-    for component_info in SUSE_EDGE_COMPONENTS {
-        if let Some(component) =
-            detect_component_by_patterns(namespaced_resources, cluster_resources, component_info)
-        {
-            detection_confidence += calculate_component_weight(component_info.name);
-            detected_components.push(component);
-        }
-    }
-
-    // 3. Detect Custom Resource Definitions (CRDs)
-    if let Some(edge_crds) = detect_suse_edge_crds(cluster_resources) {
-        detection_confidence += 10; // Moderate weight for CRDs
+    // 2. Detect SUSE Edge specific components via CRDs (most reliable)
+    if let Some(edge_crds) = detect_suse_edge_crds_precise(cluster_resources) {
+        detection_confidence += 15 * edge_crds.len() as u32;
         detected_components.extend(edge_crds);
     }
 
-    // 4. Detect Edge-specific patterns
-    if let Some(edge_patterns) = detect_edge_specific_patterns(namespaced_resources) {
-        detection_confidence += 5; // Lower weight for generic patterns
-        detected_components.extend(edge_patterns);
+    // 3. Detect core SUSE Edge deployments (strict matching)
+    if let Some(core_components) = detect_core_suse_components(namespaced_resources) {
+        detection_confidence += 10 * core_components.len() as u32;
+        detected_components.extend(core_components);
+    }
+
+    // 4. Detect SUSE registry usage (light indicator)
+    if let Some(registry_component) = detect_suse_registry_usage_precise(namespaced_resources) {
+        detection_confidence += 5;
+        detected_components.push(registry_component);
     }
 
     if detected_components.is_empty() {
@@ -237,211 +59,132 @@ pub fn detect_suse_edge_components(
     }
 
     let total_components = detected_components.len();
-    let confidence_level = determine_confidence_level(detection_confidence, total_components);
-    let deployment_type = determine_deployment_type(&detected_components);
-    let edge_version = detect_edge_version(&detected_components);
+    let confidence_level =
+        determine_confidence_level_conservative(detection_confidence, total_components);
+    let deployment_type = determine_deployment_type_precise(&detected_components);
 
     info!("🎯 SUSE Edge Detection Summary:");
     info!("   📊 Components found: {}", total_components);
     info!("   🎯 Confidence level: {}", confidence_level);
 
-    // Log component breakdown
-    for component in &detected_components {
-        debug!(
-            "   ✅ {}: {}",
-            component.name,
-            component.version.as_deref().unwrap_or("detected")
-        );
-    }
-
     Some(SuseEdgeAnalysis {
         components: detected_components,
         total_components,
         confidence: confidence_level,
-        edge_version_detected: edge_version,
         deployment_type,
         kubernetes_distribution,
     })
 }
 
-/// Enhanced Kubernetes distribution detection
-fn detect_kubernetes_distribution(
-    namespaced_resources: &HashMap<String, Vec<Value>>,
-) -> Option<Vec<SuseEdgeComponent>> {
-    let mut components = Vec::new();
-    let mut found_distributions = HashMap::new();
-
-    // Check pods, deployments, and daemonsets for K8s distribution indicators
-    let resource_types = ["pods", "deployments", "daemonsets"];
-
-    for resource_type in &resource_types {
-        if let Some(resources) = namespaced_resources.get(*resource_type) {
-            for resource in resources {
-                if let Some(namespace) = get_resource_namespace(resource) {
-                    if namespace != "kube-system" {
-                        continue;
-                    }
-
-                    let resource_name = get_resource_name(resource).unwrap_or_default();
-                    let location =
-                        format!("{}/{}/{}.yaml", namespace, resource_type, resource_name);
-
-                    // Detect RKE2
-                    if resource_name.contains("rke2") || contains_rke2_indicators(resource) {
-                        let version =
-                            extract_rke2_version(resource).unwrap_or("detected".to_string());
-                        found_distributions
-                            .entry("RKE2".to_string())
-                            .or_insert_with(|| (version, Vec::new()))
-                            .1
-                            .push(location.clone()); // Clone here to avoid move
-                    }
-
-                    // Detect K3s
-                    if resource_name.contains("k3s") || contains_k3s_indicators(resource) {
-                        let version =
-                            extract_k3s_version(resource).unwrap_or("detected".to_string());
-                        found_distributions
-                            .entry("K3s".to_string())
-                            .or_insert_with(|| (version, Vec::new()))
-                            .1
-                            .push(location); // This is fine since it's the last use
-                    }
-                }
-            }
-        }
-    }
-
-    // Convert to components
-    for (name, (version, locations)) in found_distributions {
-        components.push(SuseEdgeComponent {
-            name,
-            version: Some(version),
-            chart_version: None,
-            found_in: locations,
-            category: "Core".to_string(),
-        });
-    }
-
-    if components.is_empty() {
-        None
-    } else {
-        Some(components)
-    }
-}
-
-/// Generic component detection by patterns
-fn detect_component_by_patterns(
-    namespaced_resources: &HashMap<String, Vec<Value>>,
+/// Precise Kubernetes distribution detection - only detect what we're certain about
+fn detect_kubernetes_distribution_precise(
+    _namespaced_resources: &HashMap<String, Vec<Value>>,
     cluster_resources: &HashMap<String, Vec<Value>>,
-    component_info: &SuseEdgeComponentInfo,
 ) -> Option<SuseEdgeComponent> {
-    let mut found_in = Vec::new();
-    let mut detected_version = None;
+    // Check for K3s via specific cluster roles AND get version from nodes
+    if let Some(cluster_roles) = cluster_resources.get("clusterroles") {
+        for role in cluster_roles {
+            if let Some(name) = get_resource_name(role) {
+                if name == "system:k3s-controller" {
+                    // Found K3s, now get the actual version from nodes
+                    let version = if let Some(nodes) = cluster_resources.get("nodes") {
+                        extract_k3s_version_from_nodes(nodes).unwrap_or("detected".to_string())
+                    } else {
+                        "detected".to_string()
+                    };
 
-    // Search in namespaced resources
-    for (resource_type, resources) in namespaced_resources {
-        for resource in resources {
-            if matches_component_patterns(resource, component_info) {
-                if let Some(namespace) = get_resource_namespace(resource) {
-                    let resource_name = get_resource_name(resource).unwrap_or_default();
-                    let location =
-                        format!("{}/{}/{}.yaml", namespace, resource_type, resource_name);
-                    found_in.push(location);
-
-                    // Try to extract version
-                    if detected_version.is_none() {
-                        detected_version = extract_version_from_resource(resource, component_info);
-                    }
+                    return Some(SuseEdgeComponent {
+                        name: "K3s".to_string(),
+                        version: Some(version),
+                        found_in: vec!["Detected via cluster roles and node version".to_string()],
+                        category: "Core".to_string(),
+                    });
                 }
             }
         }
     }
 
-    // Search in cluster resources
-    for (resource_type, resources) in cluster_resources {
-        for resource in resources {
-            if matches_component_patterns(resource, component_info) {
-                let resource_name = get_resource_name(resource).unwrap_or_default();
-                let location = format!("cluster-wide/{}/{}.yaml", resource_type, resource_name);
-                found_in.push(location);
+    // Check for RKE2 via specific node labels AND get version
+    if let Some(nodes) = cluster_resources.get("nodes") {
+        for node in nodes {
+            if let Some(labels) = node
+                .get("metadata")
+                .and_then(|m| m.get("labels"))
+                .and_then(|l| l.as_object())
+            {
+                if labels.contains_key("rke2.io/hostname")
+                    || labels
+                        .values()
+                        .any(|v| v.as_str().map_or(false, |s| s.contains("rke2")))
+                {
+                    let version =
+                        extract_rke2_version_precise(nodes).unwrap_or("detected".to_string());
 
-                if detected_version.is_none() {
-                    detected_version = extract_version_from_resource(resource, component_info);
+                    return Some(SuseEdgeComponent {
+                        name: "RKE2".to_string(),
+                        version: Some(version),
+                        found_in: vec!["Detected via node labels and version".to_string()],
+                        category: "Core".to_string(),
+                    });
+                }
+            }
+        }
+
+        // Fallback: Check if any node has RKE2 in the kubelet version
+        for node in nodes {
+            if let Some(version) = node
+                .get("status")
+                .and_then(|s| s.get("nodeInfo"))
+                .and_then(|ni| ni.get("kubeletVersion"))
+                .and_then(|kv| kv.as_str())
+            {
+                if version.contains("rke2") {
+                    return Some(SuseEdgeComponent {
+                        name: "RKE2".to_string(),
+                        version: Some(version.to_string()),
+                        found_in: vec!["Detected via kubelet version".to_string()],
+                        category: "Core".to_string(),
+                    });
                 }
             }
         }
     }
 
-    if !found_in.is_empty() {
-        Some(SuseEdgeComponent {
-            name: component_info.name.to_string(),
-            version: detected_version.or_else(|| Some(component_info.version.to_string())),
-            chart_version: extract_helm_chart_version_from_locations(&found_in),
-            found_in,
-            category: component_info.category.to_string(),
-        })
-    } else {
-        None
-    }
+    None
 }
 
-/// Enhanced CRD detection for SUSE Edge
-fn detect_suse_edge_crds(
+/// Precise CRD detection - only well-known SUSE Edge CRDs
+fn detect_suse_edge_crds_precise(
     cluster_resources: &HashMap<String, Vec<Value>>,
 ) -> Option<Vec<SuseEdgeComponent>> {
     let mut components = Vec::new();
 
     if let Some(crds) = cluster_resources.get("customresourcedefinitions") {
-        let edge_crd_patterns = [
-            ("k3s.cattle.io", "K3s Add-ons", "Core"),
-            ("helm.cattle.io", "Helm Controller", "Management"),
-            ("rke.cattle.io", "RKE2 Add-ons", "Core"),
-            ("traefik.containo.us", "Traefik Ingress", "Networking"),
-            ("traefik.io", "Traefik Ingress", "Networking"),
+        let suse_edge_crds = [
             ("longhorn.io", "SUSE Storage (Longhorn)", "Storage"),
             ("neuvector.com", "SUSE Security (NeuVector)", "Security"),
-            ("metallb.io", "MetalLB", "Networking"),
             ("kubevirt.io", "KubeVirt", "Virtualization"),
             (
                 "cdi.kubevirt.io",
                 "Containerized Data Importer",
                 "Virtualization",
             ),
-            ("elemental.cattle.io", "Elemental", "Infrastructure"),
             ("metal3.io", "Metal3", "Infrastructure"),
-            ("akri.sh", "Akri (Tech Preview)", "IoT"),
-            (
-                "sriovnetwork.openshift.io",
-                "SR-IOV Network Operator",
-                "Networking",
-            ),
-            (
-                "upgrade.cattle.io",
-                "System Upgrade Controller",
-                "Management",
-            ),
-            ("lifecycle.suse.com", "Upgrade Controller", "Management"),
+            ("elemental.cattle.io", "Elemental", "Infrastructure"),
+            ("akri.sh", "Akri", "IoT"),
         ];
 
-        for (pattern, component_name, category) in &edge_crd_patterns {
-            let mut found_in = Vec::new();
+        for (crd_group, component_name, category) in &suse_edge_crds {
+            let count = crds
+                .iter()
+                .filter(|crd| get_resource_name(crd).map_or(false, |name| name.contains(crd_group)))
+                .count();
 
-            for crd in crds {
-                let crd_name = get_resource_name(crd).unwrap_or_default();
-                if crd_name.contains(pattern) {
-                    let location =
-                        format!("cluster-wide/customresourcedefinitions/{}.yaml", crd_name);
-                    found_in.push(location);
-                }
-            }
-
-            if !found_in.is_empty() {
+            if count > 0 {
                 components.push(SuseEdgeComponent {
                     name: component_name.to_string(),
                     version: None,
-                    chart_version: None,
-                    found_in,
+                    found_in: vec![format!("{} CRDs detected", count)],
                     category: category.to_string(),
                 });
             }
@@ -455,15 +198,50 @@ fn detect_suse_edge_crds(
     }
 }
 
-/// Detect Edge-specific patterns and configurations
-fn detect_edge_specific_patterns(
+/// Detect core SUSE components via specific deployments/namespaces
+fn detect_core_suse_components(
     namespaced_resources: &HashMap<String, Vec<Value>>,
 ) -> Option<Vec<SuseEdgeComponent>> {
     let mut components = Vec::new();
 
-    // Check for SUSE container registry usage
-    if let Some(suse_registry_usage) = detect_suse_registry_usage(namespaced_resources) {
-        components.push(suse_registry_usage);
+    // Check for Rancher in cattle-system namespace
+    if let Some(deployments) = namespaced_resources.get("deployments") {
+        for deployment in deployments {
+            if let Some(namespace) = get_resource_namespace(deployment) {
+                if namespace == "cattle-system" {
+                    if let Some(name) = get_resource_name(deployment) {
+                        if name.contains("rancher") {
+                            components.push(SuseEdgeComponent {
+                                name: "SUSE Rancher Prime".to_string(),
+                                version: extract_version_from_deployment(deployment),
+                                found_in: vec![format!("cattle-system/{}", name)],
+                                category: "Management".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Check for Longhorn in longhorn-system namespace
+    if let Some(deployments) = namespaced_resources.get("deployments") {
+        for deployment in deployments {
+            if let Some(namespace) = get_resource_namespace(deployment) {
+                if namespace == "longhorn-system" {
+                    if let Some(name) = get_resource_name(deployment) {
+                        if name.contains("longhorn") {
+                            components.push(SuseEdgeComponent {
+                                name: "SUSE Storage (Longhorn)".to_string(),
+                                version: extract_version_from_deployment(deployment),
+                                found_in: vec![format!("longhorn-system/{}", name)],
+                                category: "Storage".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
     }
 
     if components.is_empty() {
@@ -473,46 +251,99 @@ fn detect_edge_specific_patterns(
     }
 }
 
-// ===== Helper Functions =====
+/// Precise SUSE registry detection
+fn detect_suse_registry_usage_precise(
+    namespaced_resources: &HashMap<String, Vec<Value>>,
+) -> Option<SuseEdgeComponent> {
+    let mut suse_image_count = 0;
+    let suse_registries = ["registry.suse.com", "registry.opensuse.org"];
 
-fn matches_component_patterns(resource: &Value, component_info: &SuseEdgeComponentInfo) -> bool {
-    let resource_name = get_resource_name(resource)
-        .unwrap_or_default()
-        .to_lowercase();
-    let namespace = get_resource_namespace(resource)
-        .unwrap_or_default()
-        .to_lowercase();
-
-    // Check namespace match
-    let namespace_match = component_info
-        .namespaces
-        .iter()
-        .any(|ns| namespace.contains(&ns.to_lowercase()));
-
-    // Check pattern match in resource name or image
-    let pattern_match = component_info.patterns.iter().any(|pattern| {
-        resource_name.contains(&pattern.to_lowercase())
-            || contains_pattern_in_images(resource, pattern)
-    });
-
-    namespace_match || pattern_match
-}
-
-fn contains_pattern_in_images(resource: &Value, pattern: &str) -> bool {
-    if let Some(containers) = extract_containers_from_resource(resource) {
-        for container in containers {
-            if let Some(image) = container.get("image").and_then(|i| i.as_str()) {
-                if image.to_lowercase().contains(&pattern.to_lowercase()) {
-                    return true;
+    for (resource_type, resources) in namespaced_resources {
+        if resource_type == "pods" || resource_type == "deployments" {
+            for resource in resources {
+                if let Some(containers) = extract_containers_from_resource(resource) {
+                    for container in containers {
+                        if let Some(image) = container.get("image").and_then(|i| i.as_str()) {
+                            if suse_registries.iter().any(|reg| image.starts_with(reg)) {
+                                suse_image_count += 1;
+                            }
+                        }
+                    }
                 }
             }
         }
     }
-    false
+
+    if suse_image_count > 0 {
+        Some(SuseEdgeComponent {
+            name: "SUSE Container Images".to_string(),
+            version: None,
+            found_in: vec![format!("{} SUSE images in use", suse_image_count)],
+            category: "Infrastructure".to_string(),
+        })
+    } else {
+        None
+    }
+}
+
+// ===== Helper Functions =====
+
+fn extract_k3s_version_from_nodes(nodes: &[Value]) -> Option<String> {
+    for node in nodes {
+        if let Some(version) = node
+            .get("status")
+            .and_then(|s| s.get("nodeInfo"))
+            .and_then(|ni| ni.get("kubeletVersion"))
+            .and_then(|kv| kv.as_str())
+        {
+            // K3s versions look like: v1.30.8+k3s1
+            if version.contains("k3s") {
+                return Some(version.to_string());
+            }
+        }
+    }
+    Some("detected".to_string())
+}
+
+fn extract_rke2_version_precise(nodes: &[Value]) -> Option<String> {
+    for node in nodes {
+        if let Some(version) = node
+            .get("status")
+            .and_then(|s| s.get("nodeInfo"))
+            .and_then(|ni| ni.get("kubeletVersion"))
+            .and_then(|kv| kv.as_str())
+        {
+            // Return the actual kubelet version which includes K8s distribution info
+            return Some(version.to_string());
+        }
+    }
+    Some("detected".to_string())
+}
+
+fn extract_version_from_deployment(deployment: &Value) -> Option<String> {
+    if let Some(containers) = extract_containers_from_resource(deployment) {
+        for container in containers {
+            if let Some(image) = container.get("image").and_then(|i| i.as_str()) {
+                if let Some(version) = extract_semantic_version(image) {
+                    return Some(version);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn extract_semantic_version(image: &str) -> Option<String> {
+    if let Some(tag) = image.split(':').last() {
+        // Only return if it looks like a semantic version
+        if tag.starts_with('v') && tag.contains('.') && !tag.contains("sha256") {
+            return Some(tag.to_string());
+        }
+    }
+    None
 }
 
 fn extract_containers_from_resource(resource: &Value) -> Option<&Vec<Value>> {
-    // Try different paths for containers based on resource type
     resource
         .get("spec")
         .and_then(|s| s.get("template"))
@@ -527,216 +358,34 @@ fn extract_containers_from_resource(resource: &Value) -> Option<&Vec<Value>> {
         })
 }
 
-fn extract_version_from_resource(
-    resource: &Value,
-    component_info: &SuseEdgeComponentInfo,
-) -> Option<String> {
-    // Try to extract version from container images
-    if let Some(containers) = extract_containers_from_resource(resource) {
-        for container in containers {
-            if let Some(image) = container.get("image").and_then(|i| i.as_str()) {
-                for pattern in component_info.patterns {
-                    if image.to_lowercase().contains(&pattern.to_lowercase()) {
-                        if let Some(tag) = image.split(':').last() {
-                            if tag != "latest" && !tag.is_empty() && tag != "stable" {
-                                return Some(tag.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Try to extract from labels or annotations
-    extract_version_from_metadata(resource)
-}
-
-fn extract_version_from_metadata(resource: &Value) -> Option<String> {
-    if let Some(metadata) = resource.get("metadata") {
-        // Check labels
-        if let Some(labels) = metadata.get("labels").and_then(|l| l.as_object()) {
-            for (key, value) in labels {
-                if key.contains("version") || key.contains("release") {
-                    if let Some(version_str) = value.as_str() {
-                        return Some(version_str.to_string());
-                    }
-                }
-            }
-        }
-
-        // Check annotations
-        if let Some(annotations) = metadata.get("annotations").and_then(|a| a.as_object()) {
-            for (key, value) in annotations {
-                if key.contains("version") || key.contains("chart") {
-                    if let Some(version_str) = value.as_str() {
-                        return Some(version_str.to_string());
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
-fn extract_helm_chart_version_from_locations(_locations: &[String]) -> Option<String> {
-    // TODO: Implement Helm chart version extraction
-    None
-}
-
-fn detect_suse_registry_usage(
-    namespaced_resources: &HashMap<String, Vec<Value>>,
-) -> Option<SuseEdgeComponent> {
-    let mut suse_images = Vec::new();
-    let suse_registries = ["registry.suse.com", "registry.opensuse.org"];
-
-    for (resource_type, resources) in namespaced_resources {
-        for resource in resources {
-            if let Some(containers) = extract_containers_from_resource(resource) {
-                for container in containers {
-                    if let Some(image) = container.get("image").and_then(|i| i.as_str()) {
-                        if suse_registries.iter().any(|reg| image.contains(reg)) {
-                            if let Some(namespace) = get_resource_namespace(resource) {
-                                let resource_name = get_resource_name(resource).unwrap_or_default();
-                                let location = format!(
-                                    "{}/{}/{}.yaml",
-                                    namespace, resource_type, resource_name
-                                );
-                                suse_images.push(location);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if !suse_images.is_empty() {
-        Some(SuseEdgeComponent {
-            name: "SUSE Container Registry Usage".to_string(),
-            version: Some(format!("{} images", suse_images.len())),
-            chart_version: None,
-            found_in: suse_images,
-            category: "Infrastructure".to_string(),
-        })
-    } else {
-        None
-    }
-}
-
-fn calculate_component_weight(component_name: &str) -> u32 {
-    match component_name {
-        // Core platform components (high weight)
-        "SUSE Linux Micro" | "K3s" | "RKE2" => 25,
-        "SUSE Rancher Prime" => 20,
-        "SUSE Storage (Longhorn)" | "SUSE Security (NeuVector)" => 15,
-
-        // Infrastructure components (medium weight)
-        "Metal3" | "MetalLB" | "Elemental" => 10,
-        "KubeVirt" | "Rancher Turtles (CAPI)" => 8,
-
-        // Tools and extensions (lower weight)
-        "Edge Image Builder" | "System Upgrade Controller" => 5,
-        _ => 3, // Default weight
-    }
-}
-
-fn determine_confidence_level(confidence_score: u32, component_count: usize) -> String {
+fn determine_confidence_level_conservative(
+    confidence_score: u32,
+    component_count: usize,
+) -> String {
     match (confidence_score, component_count) {
-        (80.., 5..) => "Very High".to_string(),
-        (60.., 3..) => "High".to_string(),
-        (40.., 2..) => "Medium".to_string(),
-        (20.., 1..) => "Low".to_string(),
+        (60.., 5..) => "Very High".to_string(),
+        (40.., 3..) => "High".to_string(),
+        (20.., 2..) => "Medium".to_string(),
+        (10.., 1..) => "Low".to_string(),
         _ => "Minimal".to_string(),
     }
 }
 
-fn determine_deployment_type(components: &[SuseEdgeComponent]) -> String {
+fn determine_deployment_type_precise(components: &[SuseEdgeComponent]) -> String {
     let has_rancher = components.iter().any(|c| c.name.contains("Rancher"));
     let has_metal3 = components.iter().any(|c| c.name.contains("Metal3"));
     let has_elemental = components.iter().any(|c| c.name.contains("Elemental"));
+    let has_k8s_dist = components
+        .iter()
+        .any(|c| c.name == "K3s" || c.name == "RKE2");
 
-    match (has_rancher, has_metal3, has_elemental) {
-        (true, true, _) => "Management Cluster".to_string(),
-        (true, false, true) => "Elemental Management Cluster".to_string(),
-        (false, false, false) => "Standalone Cluster".to_string(),
-        _ => "Downstream Cluster".to_string(),
+    match (has_rancher, has_metal3, has_elemental, has_k8s_dist) {
+        (true, true, _, _) => "Management Cluster".to_string(),
+        (true, false, true, _) => "Elemental Management Cluster".to_string(),
+        (true, false, false, _) => "Rancher Management Cluster".to_string(),
+        (false, _, _, true) => "Downstream Cluster".to_string(),
+        _ => "Standalone Cluster".to_string(),
     }
-}
-
-fn detect_edge_version(components: &[SuseEdgeComponent]) -> Option<String> {
-    // Try to infer SUSE Edge version from component versions
-    for component in components {
-        if let Some(ref version) = component.version {
-            if component.name.contains("Rancher") && version.starts_with("2.11") {
-                return Some("3.3.x".to_string());
-            }
-            if component.name.contains("K3s") || component.name.contains("RKE2") {
-                if version.starts_with("1.32") {
-                    return Some("3.3.x".to_string());
-                }
-            }
-        }
-    }
-    None
-}
-
-// ===== Specific Detection Functions =====
-
-fn contains_rke2_indicators(resource: &Value) -> bool {
-    // Check for RKE2-specific labels, annotations, or configurations
-    if let Some(metadata) = resource.get("metadata") {
-        if let Some(labels) = metadata.get("labels").and_then(|l| l.as_object()) {
-            return labels
-                .keys()
-                .any(|key| key.contains("rke2") || key.contains("rancher"));
-        }
-    }
-    false
-}
-
-fn contains_k3s_indicators(resource: &Value) -> bool {
-    // Check for K3s-specific labels, annotations, or configurations
-    if let Some(metadata) = resource.get("metadata") {
-        if let Some(labels) = metadata.get("labels").and_then(|l| l.as_object()) {
-            return labels.keys().any(|key| key.contains("k3s"));
-        }
-    }
-    false
-}
-
-fn extract_rke2_version(resource: &Value) -> Option<String> {
-    if let Some(containers) = extract_containers_from_resource(resource) {
-        for container in containers {
-            if let Some(image) = container.get("image").and_then(|i| i.as_str()) {
-                if image.contains("rke2") || image.contains("rancher") {
-                    if let Some(tag) = image.split(':').last() {
-                        if tag != "latest" && tag != "stable" {
-                            return Some(tag.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Some("detected".to_string())
-}
-
-fn extract_k3s_version(resource: &Value) -> Option<String> {
-    if let Some(containers) = extract_containers_from_resource(resource) {
-        for container in containers {
-            if let Some(image) = container.get("image").and_then(|i| i.as_str()) {
-                if image.contains("k3s") {
-                    if let Some(tag) = image.split(':').last() {
-                        if tag != "latest" && tag != "stable" {
-                            return Some(tag.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Some("detected".to_string())
 }
 
 fn get_resource_name(resource: &Value) -> Option<String> {
