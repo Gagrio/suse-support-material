@@ -32,48 +32,82 @@ A blazingly fast 🦀 Rust-powered tool that collects and archives Kubernetes cl
 # Pull the latest container image
 podman pull ghcr.io/gagrio/ketchup:latest
 
-# Run with your kubeconfig
-podman run -v ~/.kube/config:/kubeconfig:ro \
+# Basic collection (all namespaces)
+# Note: --network host allows container to reach your Kubernetes cluster
+podman run --network host \
+           -v ~/.kube/config:/kubeconfig \
            -v /tmp:/tmp \
            ghcr.io/gagrio/ketchup:latest \
            --kubeconfig /kubeconfig --verbose
 
-# Run with custom output directory
-podman run -v ~/.kube/config:/kubeconfig:ro \
-           -v /path/to/output:/output \
+# Collect from specific namespaces
+podman run --network host \
+           -v ~/.kube/config:/kubeconfig \
+           -v /tmp:/tmp \
            ghcr.io/gagrio/ketchup:latest \
-           --kubeconfig /kubeconfig --output /output
+           --kubeconfig /kubeconfig \
+           --namespaces "kube-system,default" --verbose
+
+# Custom output directory
+podman run --network host \
+           -v ~/.kube/config:/kubeconfig \
+           -v /my/backup:/output \
+           ghcr.io/gagrio/ketchup:latest \
+           --kubeconfig /kubeconfig \
+           --output /output --verbose
 ```
+
+> **💡 Network Note**: The `--network host` flag is required for the container to access your Kubernetes cluster. This gives the container the same network access as your host machine, allowing it to connect to local clusters (K3s, kind, etc.) and remote clusters exactly like running Ketchup natively.
 
 ## 📖 Usage
 
 ### Basic Usage
 
+> **⚠️ Important**: All commands require `--network host` to allow the container to connect to your Kubernetes cluster.
+
 ```bash
 # Collect from all namespaces (default behavior)
-podman run -v ~/.kube/config:/kubeconfig:ro -v /tmp:/tmp \
-           ghcr.io/gagrio/ketchup:latest --kubeconfig /kubeconfig
+podman run --network host \
+           -v ~/.kube/config:/kubeconfig \
+           -v /tmp:/tmp \
+           ghcr.io/gagrio/ketchup:latest \
+           --kubeconfig /kubeconfig
 
 # Collect from specific namespaces
-podman run -v ~/.kube/config:/kubeconfig:ro -v /tmp:/tmp \
-           ghcr.io/gagrio/ketchup:latest --kubeconfig /kubeconfig \
+podman run --network host \
+           -v ~/.kube/config:/kubeconfig \
+           -v /tmp:/tmp \
+           ghcr.io/gagrio/ketchup:latest \
+           --kubeconfig /kubeconfig \
            --namespaces "kube-system,default"
 
 # Verbose output with detailed logging
-podman run -v ~/.kube/config:/kubeconfig:ro -v /tmp:/tmp \
-           ghcr.io/gagrio/ketchup:latest --kubeconfig /kubeconfig --verbose
+podman run --network host \
+           -v ~/.kube/config:/kubeconfig \
+           -v /tmp:/tmp \
+           ghcr.io/gagrio/ketchup:latest \
+           --kubeconfig /kubeconfig --verbose
 
 # Include custom resources and CRDs
-podman run -v ~/.kube/config:/kubeconfig:ro -v /tmp:/tmp \
-           ghcr.io/gagrio/ketchup:latest --kubeconfig /kubeconfig -C
+podman run --network host \
+           -v ~/.kube/config:/kubeconfig \
+           -v /tmp:/tmp \
+           ghcr.io/gagrio/ketchup:latest \
+           --kubeconfig /kubeconfig -C
 
 # Disable SUSE Edge analysis
-podman run -v ~/.kube/config:/kubeconfig:ro -v /tmp:/tmp \
-           ghcr.io/gagrio/ketchup:latest --kubeconfig /kubeconfig -D
+podman run --network host \
+           -v ~/.kube/config:/kubeconfig \
+           -v /tmp:/tmp \
+           ghcr.io/gagrio/ketchup:latest \
+           --kubeconfig /kubeconfig -D
 
 # Raw mode (unsanitized resources)
-podman run -v ~/.kube/config:/kubeconfig:ro -v /tmp:/tmp \
-           ghcr.io/gagrio/ketchup:latest --kubeconfig /kubeconfig --raw
+podman run --network host \
+           -v ~/.kube/config:/kubeconfig \
+           -v /tmp:/tmp \
+           ghcr.io/gagrio/ketchup:latest \
+           --kubeconfig /kubeconfig --raw
 ```
 
 ### Command Line Options
@@ -211,8 +245,11 @@ By default, Ketchup sanitizes resources for `kubectl apply` readiness:
 ### 🔧 Raw Mode
 Use `--raw` flag to collect resources as-is from the cluster:
 ```bash
-podman run -v ~/.kube/config:/kubeconfig:ro -v /tmp:/tmp \
-           ghcr.io/gagrio/ketchup:latest --kubeconfig /kubeconfig --raw
+podman run --network host \
+           -v ~/.kube/config:/kubeconfig \
+           -v /tmp:/tmp \
+           ghcr.io/gagrio/ketchup:latest \
+           --kubeconfig /kubeconfig --raw
 ```
 
 ## 🔧 Development
