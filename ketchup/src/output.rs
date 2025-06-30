@@ -101,6 +101,27 @@ impl SanitizationStats {
     }
 }
 
+// ===== NEW: SUSE Edge Analysis Structs =====
+
+#[derive(Debug, Clone)]
+pub struct SuseEdgeAnalysis {
+    pub components: Vec<SuseEdgeComponent>,
+    pub total_components: usize,
+    pub confidence: String,
+    pub edge_version_detected: Option<String>,
+    pub deployment_type: String, // "Management Cluster", "Downstream Cluster", "Standalone"
+    pub kubernetes_distribution: Option<String>, // "RKE2", "K3s", or "Unknown"
+}
+
+#[derive(Debug, Clone)]
+pub struct SuseEdgeComponent {
+    pub name: String,
+    pub version: Option<String>,
+    pub chart_version: Option<String>,
+    pub found_in: Vec<String>,
+    pub category: String, // "Core", "Storage", "Security", "Networking", "Virtualization", "Tools"
+}
+
 // Helper structs for resource categorization
 #[derive(Default)]
 struct WorkloadResources {
@@ -405,7 +426,7 @@ impl OutputManager {
         Ok((saved_count, sanitization_stats))
     }
 
-    /// Create enhanced summary with sanitization information
+    /// Enhanced summary creation that includes optional SUSE Edge analysis
     pub fn create_enhanced_summary(
         &self,
         output_dir: &str,
@@ -413,12 +434,12 @@ impl OutputManager {
         cluster_stats: &std::collections::HashMap<String, usize>,
         sanitization_stats: &SanitizationStats,
         raw_mode: bool,
+        suse_edge_analysis: Option<&SuseEdgeAnalysis>, // NEW parameter
     ) -> Result<()> {
-        // Calculate totals for cluster overview
+        // Calculate totals for cluster overview (existing logic)
         let mut total_namespaced_resources = 0;
         let mut active_namespaces = Vec::new();
 
-        // Collect namespace data and filter out empty namespaces
         for stats in namespace_stats {
             let namespace_total = stats.total_resources();
             if namespace_total > 0 {
@@ -427,7 +448,6 @@ impl OutputManager {
             }
         }
 
-        // Calculate cluster resource totals (only non-zero)
         let mut cluster_resource_map = std::collections::HashMap::new();
         let mut total_cluster_resources = 0;
 
@@ -440,7 +460,7 @@ impl OutputManager {
 
         let grand_total = total_namespaced_resources + total_cluster_resources;
 
-        // Build namespace details (only active namespaces)
+        // Build namespace details
         let mut namespace_details = serde_json::Map::new();
         for stats in namespace_stats {
             if stats.total_resources() > 0 {
@@ -455,7 +475,7 @@ impl OutputManager {
             }
         }
 
-        // Calculate resource highlights (only non-zero categories)
+        // Calculate resource highlights (existing logic)
         let (workload_resources, security_resources, configuration_resources, networking_resources) =
             self.calculate_resource_highlights(namespace_stats);
 
@@ -583,7 +603,7 @@ impl OutputManager {
             }
         }
 
-        // Build sanitization section for summary
+        // Build sanitization section (existing logic)
         let mut sanitization_section = serde_json::Map::new();
         if raw_mode {
             sanitization_section.insert("mode".to_string(), "raw".into());
@@ -606,16 +626,6 @@ impl OutputManager {
                     "skipped_count".to_string(),
                     sanitization_stats.total_skipped.into(),
                 );
-                sanitization_section.insert(
-                    "skipped_resources".to_string(),
-                    serde_json::Value::Array(
-                        sanitization_stats
-                            .skipped_resources
-                            .iter()
-                            .map(|s| serde_json::Value::String(s.clone()))
-                            .collect(),
-                    ),
-                );
                 sanitization_section.insert("note".to_string(), "Some resources were skipped due to sanitization issues. Use --raw to collect all resources.".into());
             } else {
                 sanitization_section.insert(
@@ -625,8 +635,8 @@ impl OutputManager {
             }
         }
 
-        // Build the summary with emojis in section names
-        let summary = serde_json::json!({
+        // Build the summary with optional SUSE Edge section
+        let mut summary = serde_json::json!({
             "📋 collection_info": {
                 "timestamp": self.timestamp.to_rfc3339(),
                 "tool": "ketchup",
@@ -653,13 +663,33 @@ impl OutputManager {
             }
         });
 
+        // Add SUSE Edge analysis if present
+        if let Some(edge_analysis) = suse_edge_analysis {
+            let edge_section = self.build_suse_edge_section(edge_analysis)?;
+            summary
+                .as_object_mut()
+                .unwrap()
+                .insert("🍅 suse_edge_analysis".to_string(), edge_section);
+        }
+
+        // Create summary file
         let filename = format!("{}/collection-summary.yaml", output_dir);
         info!("📋 Creating collection summary: {}", filename);
 
-        // Create YAML with custom header and spacing
         let mut summary_content = String::new();
         summary_content.push_str("# 🍅 KETCHUP CLUSTER COLLECTION SUMMARY\n");
         summary_content.push_str(&format!("# Generated: {}\n", self.timestamp.to_rfc3339()));
+
+        if let Some(edge_analysis) = suse_edge_analysis {
+            summary_content.push_str(&format!(
+                "# SUSE Edge Detection: {} confidence\n",
+                edge_analysis.confidence
+            ));
+            if let Some(ref k8s_dist) = edge_analysis.kubernetes_distribution {
+                summary_content.push_str(&format!("# Kubernetes Distribution: {}\n", k8s_dist));
+            }
+        }
+
         if raw_mode {
             summary_content.push_str("# Mode: RAW (unsanitized resources)\n");
         } else {
@@ -670,7 +700,7 @@ impl OutputManager {
         let yaml_content =
             serde_yaml::to_string(&summary).context("Failed to serialize summary to YAML")?;
 
-        // Add spacing between sections by replacing emoji section headers
+        // Add spacing between sections
         let spaced_yaml = yaml_content
             .replace("📋 collection_info:", "\n📋 collection_info:")
             .replace("📊 cluster_overview:", "\n📊 cluster_overview:")
@@ -678,13 +708,218 @@ impl OutputManager {
             .replace("☸️ cluster_resources:", "\n☸️ cluster_resources:")
             .replace("🏢 namespaces:", "\n🏢 namespaces:")
             .replace("🎯 resource_highlights:", "\n🎯 resource_highlights:")
+            .replace("🍅 suse_edge_analysis:", "\n🍅 suse_edge_analysis:")
             .replace("📁 output_structure:", "\n📁 output_structure:");
 
         summary_content.push_str(&spaced_yaml);
-
         fs::write(&filename, summary_content).context("Failed to write YAML summary file")?;
 
+        // Create separate detailed SUSE Edge report if analysis was performed
+        if let Some(edge_analysis) = suse_edge_analysis {
+            self.create_detailed_suse_edge_report(output_dir, edge_analysis)?;
+        }
+
         Ok(())
+    }
+
+    /// Build SUSE Edge section for the main summary
+    fn build_suse_edge_section(
+        &self,
+        edge_analysis: &SuseEdgeAnalysis,
+    ) -> Result<serde_json::Value> {
+        let mut components_by_category = std::collections::HashMap::new();
+
+        // Group components by category
+        for component in &edge_analysis.components {
+            components_by_category
+                .entry(component.category.clone())
+                .or_insert_with(Vec::new)
+                .push(serde_json::json!({
+                    "name": component.name,
+                    "version": component.version,
+                    "chart_version": component.chart_version,
+                    "locations_count": component.found_in.len()
+                }));
+        }
+
+        Ok(serde_json::json!({
+            "detection_summary": {
+                "total_components": edge_analysis.total_components,
+                "confidence_level": edge_analysis.confidence,
+                "edge_version": edge_analysis.edge_version_detected,
+                "deployment_type": edge_analysis.deployment_type,
+                "kubernetes_distribution": edge_analysis.kubernetes_distribution
+            },
+            "components_by_category": components_by_category,
+            "quick_assessment": self.generate_quick_assessment(edge_analysis)
+        }))
+    }
+
+    /// Create detailed SUSE Edge report as separate file
+    fn create_detailed_suse_edge_report(
+        &self,
+        output_dir: &str,
+        edge_analysis: &SuseEdgeAnalysis,
+    ) -> Result<()> {
+        let filename = format!("{}/suse-edge-analysis.yaml", output_dir);
+        info!("🍅 Creating detailed SUSE Edge analysis: {}", filename);
+
+        let mut report_content = String::new();
+        report_content.push_str("# 🍅 SUSE EDGE COMPONENT ANALYSIS\n");
+        report_content.push_str(&format!("# Generated: {}\n", self.timestamp.to_rfc3339()));
+        report_content.push_str(&format!(
+            "# Confidence: {} ({})\n",
+            edge_analysis.confidence,
+            self.get_confidence_description(&edge_analysis.confidence)
+        ));
+        if let Some(ref version) = edge_analysis.edge_version_detected {
+            report_content.push_str(&format!("# SUSE Edge Version: {}\n", version));
+        }
+        report_content.push_str("# ========================================\n\n");
+
+        // Build detailed report structure
+        let mut detailed_components = Vec::new();
+        for component in &edge_analysis.components {
+            detailed_components.push(serde_json::json!({
+                "name": component.name,
+                "version": component.version,
+                "chart_version": component.chart_version,
+                "category": component.category,
+                "found_in": component.found_in,
+                "detection_confidence": self.assess_component_confidence(component)
+            }));
+        }
+
+        let detailed_report = serde_json::json!({
+            "🎯 analysis_summary": {
+                "total_components_detected": edge_analysis.total_components,
+                "confidence_level": edge_analysis.confidence,
+                "edge_version_detected": edge_analysis.edge_version_detected,
+                "deployment_type": edge_analysis.deployment_type,
+                "kubernetes_distribution": edge_analysis.kubernetes_distribution,
+                "analysis_timestamp": self.timestamp.to_rfc3339()
+            },
+            "📊 component_breakdown": {
+                "by_category": self.group_components_by_category(&edge_analysis.components),
+                "version_summary": self.summarize_component_versions(&edge_analysis.components)
+            },
+            "🔍 detailed_findings": detailed_components,
+            "💡 recommendations": self.generate_recommendations(edge_analysis),
+            "⚠️ notes": [
+                "This analysis is based on detected Kubernetes resources and container images",
+                "Some components may be present but not detected if they use non-standard configurations",
+                "Confidence level indicates the reliability of the detection based on found evidence"
+            ]
+        });
+
+        let yaml_content = serde_yaml::to_string(&detailed_report)?;
+        let spaced_yaml = yaml_content
+            .replace("🎯 analysis_summary:", "\n🎯 analysis_summary:")
+            .replace("📊 component_breakdown:", "\n📊 component_breakdown:")
+            .replace("🔍 detailed_findings:", "\n🔍 detailed_findings:")
+            .replace("💡 recommendations:", "\n💡 recommendations:")
+            .replace("⚠️ notes:", "\n⚠️ notes:");
+
+        report_content.push_str(&spaced_yaml);
+        fs::write(&filename, report_content)?;
+
+        Ok(())
+    }
+
+    // Helper methods for SUSE Edge analysis
+
+    fn generate_quick_assessment(&self, edge_analysis: &SuseEdgeAnalysis) -> Vec<String> {
+        let mut assessment = Vec::new();
+
+        if edge_analysis.total_components >= 5 {
+            assessment.push("Full SUSE Edge deployment detected".to_string());
+        } else if edge_analysis.total_components >= 2 {
+            assessment.push("Partial SUSE Edge deployment detected".to_string());
+        } else {
+            assessment.push("Limited SUSE Edge components detected".to_string());
+        }
+
+        if edge_analysis.kubernetes_distribution.is_some() {
+            assessment.push("SUSE Kubernetes distribution in use".to_string());
+        }
+
+        assessment
+    }
+
+    fn get_confidence_description(&self, confidence: &str) -> &'static str {
+        match confidence {
+            "Very High" => "Strong evidence of SUSE Edge deployment",
+            "High" => "Good evidence of SUSE Edge components",
+            "Medium" => "Some SUSE Edge components detected",
+            "Low" => "Few SUSE Edge indicators found",
+            _ => "Minimal SUSE Edge presence",
+        }
+    }
+
+    fn assess_component_confidence(&self, component: &SuseEdgeComponent) -> String {
+        if component.version.is_some() && component.found_in.len() > 1 {
+            "High".to_string()
+        } else if component.version.is_some() || component.found_in.len() > 1 {
+            "Medium".to_string()
+        } else {
+            "Low".to_string()
+        }
+    }
+
+    fn group_components_by_category(&self, components: &[SuseEdgeComponent]) -> serde_json::Value {
+        let mut by_category = std::collections::HashMap::new();
+
+        for component in components {
+            by_category
+                .entry(&component.category)
+                .or_insert_with(Vec::new)
+                .push(&component.name);
+        }
+
+        serde_json::to_value(by_category).unwrap_or_default()
+    }
+
+    fn summarize_component_versions(&self, components: &[SuseEdgeComponent]) -> serde_json::Value {
+        let mut version_summary = std::collections::HashMap::new();
+
+        for component in components {
+            if let Some(ref version) = component.version {
+                version_summary.insert(&component.name, version);
+            }
+        }
+
+        serde_json::to_value(version_summary).unwrap_or_default()
+    }
+
+    fn generate_recommendations(&self, edge_analysis: &SuseEdgeAnalysis) -> Vec<String> {
+        let mut recommendations = Vec::new();
+
+        if edge_analysis.total_components < 3 {
+            recommendations.push(
+                "Consider reviewing SUSE Edge documentation for complete component setup"
+                    .to_string(),
+            );
+        }
+
+        if edge_analysis.confidence == "Low" || edge_analysis.confidence == "Minimal" {
+            recommendations.push(
+                "Some components may not be detected due to custom configurations".to_string(),
+            );
+        }
+
+        if edge_analysis.kubernetes_distribution.is_none() {
+            recommendations.push(
+                "Unable to detect Kubernetes distribution - manual verification recommended"
+                    .to_string(),
+            );
+        }
+
+        recommendations.push(
+            "Review the detailed findings for specific component locations and versions"
+                .to_string(),
+        );
+
+        recommendations
     }
 
     // Helper function to determine namespace purpose
