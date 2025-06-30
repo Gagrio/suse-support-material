@@ -6,7 +6,7 @@ on:
     paths:
       - 'ketchup/**'  # Only trigger on changes to files in ketchup directory
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]  # Support both main and master
     paths:
       - 'ketchup/**'
   workflow_dispatch:  # Allows manual triggering
