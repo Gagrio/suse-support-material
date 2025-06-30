@@ -7,6 +7,7 @@ use output::{NamespaceStats, OutputManager, SanitizationStats};
 
 mod k8s;
 mod output;
+mod suse_edge;
 
 #[derive(Parser, Debug)]
 #[command(name = "ketchup")]
@@ -45,6 +46,10 @@ struct Args {
     /// Collect raw unsanitized resources (default: sanitize for kubectl apply readiness)
     #[arg(short = 'r', long, default_value = "false")]
     raw: bool,
+
+    /// Disable SUSE Edge component detection and analysis (enabled by default)
+    #[arg(long, default_value = "false")]
+    disable_suse_edge_analysis: bool,
 
     /// Verbose logging (progress and summaries)
     #[arg(short, long)]
@@ -342,6 +347,13 @@ async fn main() -> Result<()> {
         warn!("✨ Default mode: Sanitizing resources for kubectl apply readiness");
     }
 
+    // Log SUSE Edge analysis mode
+    if args.disable_suse_edge_analysis {
+        warn!("🍅 SUSE Edge analysis: Disabled (use --disable-suse-edge-analysis=false to enable)");
+    } else {
+        warn!("🍅 SUSE Edge analysis: Enabled by default (detecting SUSE Edge components)");
+    }
+
     // Connect to Kubernetes using specified kubeconfig
     let kube_client = k8s::KubeClient::new_client(&args.kubeconfig).await?;
 
@@ -366,6 +378,25 @@ async fn main() -> Result<()> {
     .await?;
     let cluster_resources =
         collect_cluster_resources(&kube_client, args.include_custom_resources).await?;
+
+    // Perform SUSE Edge analysis by default (unless disabled)
+    let suse_edge_analysis = if args.disable_suse_edge_analysis {
+        warn!("🍅 Skipping SUSE Edge component analysis (disabled by user)");
+        None
+    } else {
+        warn!("🍅 Performing SUSE Edge component analysis...");
+        match suse_edge::detect_suse_edge_components(&namespaced_resources, &cluster_resources) {
+            Some(analysis) => {
+                warn!("🍅 SUSE Edge components detected - analysis completed");
+                Some(analysis)
+            }
+            None => {
+                warn!("🍅 No SUSE Edge components detected in this cluster");
+                // Create empty analysis to indicate we checked but found nothing
+                Some(suse_edge::create_empty_analysis())
+            }
+        }
+    };
 
     // Create output manager and save files
     warn!("💾 Setting up file output...");
@@ -513,13 +544,14 @@ async fn main() -> Result<()> {
         );
     }
 
-    // Create enhanced summary
+    // Create enhanced summary with SUSE Edge analysis
     output_manager.create_enhanced_summary(
         &output_dir,
         &namespace_stats,
         &cluster_stats,
         &total_sanitization_stats,
         args.raw,
+        suse_edge_analysis.as_ref(),
     )?;
 
     // Handle compression based on user preference
@@ -529,6 +561,22 @@ async fn main() -> Result<()> {
 
     warn!("💾 Files saved to: {}", output_dir);
     warn!("🎉 Collection completed successfully");
+
+    // Show SUSE Edge analysis summary
+    if let Some(ref analysis) = suse_edge_analysis {
+        if analysis.total_components > 0 {
+            warn!("🍅 SUSE Edge Analysis Summary:");
+            warn!("   📊 Components detected: {}", analysis.total_components);
+            warn!("   🎯 Confidence level: {}", analysis.confidence);
+            warn!(
+                "   📁 Detailed report: {}/suse-edge-analysis.yaml",
+                output_dir
+            );
+        } else {
+            warn!("🍅 SUSE Edge Analysis: No components found - standard Kubernetes cluster");
+        }
+    }
+
     Ok(())
 }
 
