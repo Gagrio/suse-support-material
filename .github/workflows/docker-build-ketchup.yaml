@@ -2,7 +2,7 @@ name: 🍅 Build and Push Ketchup Docker Image
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]  # Support both main and master
     paths:
       - 'ketchup/**'  # Only trigger on changes to files in ketchup directory
   pull_request:
