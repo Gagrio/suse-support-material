@@ -1,0 +1,44 @@
+---
+apiVersion: elemental.cattle.io/v1beta1
+kind: MachineRegistration
+metadata:
+  name: demo-fleet-custom
+  namespace: fleet-default
+spec:
+  config:
+    cloud-config:
+      users:
+        - name: root
+          passwd: rancher123
+      write_files:
+        - path: /etc/hosts
+          permissions: '0644'
+          content: |
+            127.0.0.1 localhost
+            10.114.128.118 demomgmt.local
+        - path: /etc/motd
+          permissions: '0644'
+          content: |
+            ==========================================
+            Custom Elemental Demo - Cockpit Enabled
+            ==========================================
+            Access Cockpit: https://this-ip:9090
+            Login: root / rancher123
+            ==========================================
+      runcmd:
+        - systemctl status cockpit.socket
+    elemental:
+      install:
+        reboot: false
+        device: /dev/vda
+        debug: true
+      registration:
+        emulate-tpm: true
+        emulated-tpm-seed: -1
+  machineInventoryLabels:
+    environment: "demo"
+    location: "lab"
+    config-type: "custom-cockpit"
+    cockpit-enabled: "true"
+  machineInventoryAnnotations:
+    demo-session: "demo-custom-iso"

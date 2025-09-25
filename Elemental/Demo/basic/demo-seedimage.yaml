@@ -1,0 +1,26 @@
+# demo-seedimage-with-dns.yaml
+apiVersion: elemental.cattle.io/v1beta1
+kind: SeedImage
+metadata:
+  name: demo-iso
+  namespace: fleet-default
+spec:
+  type: iso
+  baseImage: "registry.suse.com/suse/sl-micro/6.1/baremetal-iso-image:2.2.0-4.3"
+  cleanupAfterMinutes: 7200
+  cloud-config:
+    users:
+      - name: demo
+        passwd: demo123
+    write_files:
+      - path: /etc/hosts
+        permissions: '0644'
+        append: true
+        content: |
+          127.0.0.1 localhost
+          10.114.128.118 demomgmt.local
+  registrationRef:
+    apiVersion: elemental.cattle.io/v1beta1
+    kind: MachineRegistration
+    name: demo-fleet
+    namespace: fleet-default

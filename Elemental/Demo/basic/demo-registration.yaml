@@ -1,0 +1,36 @@
+# demo-registration.yaml
+apiVersion: elemental.cattle.io/v1beta1
+kind: MachineRegistration
+metadata:
+  name: demo-fleet
+  namespace: fleet-default
+spec:
+  config:
+    cloud-config:
+      users:
+        - name: demo
+          passwd: demo123
+      write_files:
+        - path: /etc/hosts
+          permissions: '0644'
+          append: true
+          content: |
+            127.0.0.1 localhost
+            10.114.128.118 demomgmt.local
+    elemental:
+      install:
+        reboot: false
+        device: /dev/vda
+        debug: true
+      registration:
+        emulate-tpm: true
+        emulated-tpm-seed: -1
+  machineInventoryLabels:
+    environment: "demo"
+    location: "lab"
+    manufacturer: "${System Information/Manufacturer}"
+    productName: "${System Information/Product Name}"
+    serialNumber: "${System Information/Serial Number}"
+    machineUUID: "${System Information/UUID}"
+  machineInventoryAnnotations:
+    demo-session: "live-demo"

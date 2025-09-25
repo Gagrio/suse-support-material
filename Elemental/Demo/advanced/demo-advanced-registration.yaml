@@ -1,0 +1,60 @@
+# demo-advanced-registration.yaml
+apiVersion: elemental.cattle.io/v1beta1
+kind: MachineRegistration
+metadata:
+  name: demo-fleet-advanced
+  namespace: fleet-default
+spec:
+  config:
+    cloud-config:
+      users:
+        - name: root
+          passwd: root
+        - name: admin
+          shell: "/bin/bash"
+          ssh_authorized_keys:
+            - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO0Ndoc42s70At7WJAjqQqJpYkltMUV5tpwAUmmNdIpi
+      write_files:
+        - path: /etc/hosts
+          permissions: '0644'
+          owner: root:root
+          content: |
+            127.0.0.1 localhost
+            10.114.128.118 demomgmt.local
+        - path: /etc/motd
+          permissions: '0644'
+          owner: root:root
+          content: |
+            ==========================================
+            Advanced Elemental Demo Machine
+            ==========================================
+            - SSH key authentication configured
+            - Custom MOTD deployed
+            - Configured with cloud-init automation
+            ==========================================
+        - path: /etc/sudoers.d/admin
+          permissions: '0440'
+          owner: root:root
+          content: |
+            admin ALL=(ALL) NOPASSWD:ALL
+      runcmd:
+        - echo "root" | passwd --stdin root
+        - hostname -I
+    elemental:
+      install:
+        reboot: false
+        device: /dev/vda
+        debug: true
+      registration:
+        emulate-tpm: true
+        emulated-tpm-seed: -1
+  machineInventoryLabels:
+    environment: "demo"
+    location: "lab"
+    config-type: "advanced"
+    manufacturer: "${System Information/Manufacturer}"
+    productName: "${System Information/Product Name}"
+    serialNumber: "${System Information/Serial Number}"
+    machineUUID: "${System Information/UUID}"
+  machineInventoryAnnotations:
+    demo-session: "advanced-config"

@@ -1,0 +1,22 @@
+# demo-custom-seedimage.yaml
+apiVersion: elemental.cattle.io/v1beta1
+kind: SeedImage
+metadata:
+  name: demo-custom-docker-iso
+  namespace: fleet-default
+spec:
+  type: iso
+  baseImage: "gagrio1885/custom-cockpit-iso:v1.0.0"
+  cleanupAfterMinutes: 7200
+  cloud-config:
+    write_files:
+      - path: /etc/hosts
+        permissions: '0644'
+        content: |
+          127.0.0.1 localhost
+          10.114.128.118 demomgmt.local
+  registrationRef:
+    apiVersion: elemental.cattle.io/v1beta1
+    kind: MachineRegistration
+    name: demo-fleet-custom-docker
+    namespace: fleet-default

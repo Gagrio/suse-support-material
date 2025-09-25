@@ -1,0 +1,45 @@
+# demo-os-registration.yaml
+apiVersion: elemental.cattle.io/v1beta1
+kind: MachineRegistration
+metadata:
+  name: demo-fleet-upgrade
+  namespace: fleet-default
+spec:
+  config:
+    cloud-config:
+      users:
+        - name: demo
+          passwd: demo123
+      write_files:
+        - path: /etc/hosts
+          permissions: '0644'
+          content: |
+            127.0.0.1 localhost
+            10.114.128.118 demomgmt.local
+        - path: /etc/motd
+          permissions: '0644'
+          content: |
+            ==========================================
+            Elemental OS Upgrade Demo Machine
+            Current Version: Will be upgraded
+            ==========================================
+    elemental:
+      install:
+        reboot: true
+        device: /dev/vda
+        debug: true
+      registration:
+        emulate-tpm: true
+        emulated-tpm-seed: -1
+  machineInventoryLabels:
+    environment: "demo"
+    location: "lab"
+    demo-type: "os-upgrade"
+    upgrade-ready: "true"
+    manufacturer: "${System Information/Manufacturer}"
+    productName: "${System Information/Product Name}"
+    serialNumber: "${System Information/Serial Number}"
+    machineUUID: "${System Information/UUID}"
+  machineInventoryAnnotations:
+    demo-session: "os-upgrade-demo"
+    upgrade-scenario: "4.3-to-4.4"

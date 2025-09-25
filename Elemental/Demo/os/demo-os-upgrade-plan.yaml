@@ -1,0 +1,16 @@
+# demo-upgrade-plan.yaml
+apiVersion: elemental.cattle.io/v1beta1
+kind: ManagedOSVersionChannel
+metadata:
+  name: demo-upgrade-channel
+  namespace: fleet-default
+spec:
+  options:
+    image: "registry.suse.com/suse/sl-micro/6.1/baremetal-os-image:2.2.0-4.4"
+  selector:
+    matchLabels:
+      demo-type: "os-upgrade"
+      upgrade-ready: "true"
+  upgradeContainer:
+    image: "registry.suse.com/suse/sl-micro/6.1/baremetal-os-image:2.2.0-4.4"
+    command: ["/usr/sbin/suc-upgrade"]
